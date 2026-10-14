@@ -2,7 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="app-build" content="20261014-mobile-v3">
+<link rel="icon" href="data:,">
 <title>流星雨许愿</title>
 <style>
 /* ============================================================
@@ -32,8 +34,9 @@ body{
   background:var(--sky-void); color:var(--text-1);
   font-family:var(--ff); font-size:var(--fs-15); line-height:var(--lh-base);
   -webkit-font-smoothing:antialiased;
-  touch-action:none;
+  touch-action:auto;
 }
+#sky{touch-action:none}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 #fx{z-index:2;pointer-events:none}
 
@@ -107,9 +110,10 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   position:fixed;z-index:10;
   left:50%;transform:translateX(-50%);
   width:min(76vw,330px);
-  bottom:calc(env(safe-area-inset-bottom,0px) + var(--s5));
+  bottom:calc(env(safe-area-inset-bottom,0px) + var(--s5) + var(--keyboard-lift,0px));
   display:flex;align-items:center;gap:var(--s2);
-  height:48px;padding:0 6px 0 18px;
+  height:52px;padding:0 4px 0 16px;
+  touch-action:manipulation;
   background:rgba(10,13,22,.78);
   border:1px solid var(--hair);
   border-radius:var(--r-pill);
@@ -154,11 +158,12 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 .composer input{
   flex:1;min-width:0;height:100%;
   background:none;border:none;outline:none;
-  color:var(--text-1);font-family:var(--ff);font-size:var(--fs-15);
+  color:var(--text-1);font-family:var(--ff);font-size:16px;
 }
 .composer input::placeholder{color:var(--text-3)}
 .send{
-  width:36px;height:36px;flex:none;border-radius:var(--r-round);
+  width:44px;height:44px;flex:none;border-radius:var(--r-round);
+  touch-action:manipulation;
   background:#fff;color:#000;border:none;cursor:pointer;
   display:grid;place-items:center;font-size:17px;font-weight:600;
   transition:transform var(--d1) var(--e-out),opacity var(--d2) var(--e-out);
@@ -284,18 +289,26 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   padding:3px 10px;background:rgba(255,255,255,.05);
 }
 .saveview-b{
-  flex:1;min-height:0;display:grid;place-items:center;
+  flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;
   padding:var(--s2) var(--s4);
+  touch-action:pan-y;
 }
 .saveview-b img{
-  max-width:100%;max-height:100%;display:block;
+  max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block;
+  -webkit-touch-callout:default;touch-action:pan-y;
   border-radius:var(--r-card);
   border:1px solid var(--hair);
   box-shadow:0 18px 60px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04);
   transform:scale(.96);opacity:0;
   transition:transform var(--d3) var(--e-spring),opacity var(--d3) var(--e-out);
-  user-select:none;-webkit-user-select:none;
+  user-select:auto;-webkit-user-select:auto;
 }
+.save-help{flex:none;padding:6px 20px 0;text-align:center;font-size:12px;line-height:1.7;color:var(--text-2)}
+.savemask.image-only .saveview-h,.savemask.image-only .saveview-f{display:none}
+.savemask.image-only .saveview-b{padding:24px}
+.savemask.image-only .saveview-b img{border-radius:0;border:0;box-shadow:none}
+.saveview-f{flex-wrap:wrap}
+.saveview-f .save-help{flex-basis:100%;padding:0 0 8px}
 .savemask.show .saveview-b img{transform:none;opacity:1}
 .saveview-f{
   display:flex;gap:var(--s3);flex:none;
@@ -312,6 +325,40 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   background:#fff;color:#000;border-color:#fff;
   box-shadow:0 0 24px rgba(190,220,255,.35);
 }
+
+/* ============ 微信内置浏览器 · 保存指引 ============ */
+.wxmask{
+  position:fixed;inset:0;z-index:40;
+  background:rgba(0,0,0,.72);
+  display:grid;place-items:center;padding:var(--s5);
+  opacity:0;pointer-events:none;transition:opacity var(--d2) var(--e-out);
+}
+.wxmask.show{opacity:1;pointer-events:auto}
+.wxcard{
+  width:min(86vw,320px);
+  background:var(--glass-2);
+  border:1px solid var(--hair);
+  border-radius:var(--r-panel);
+  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  padding:var(--s6) var(--s5) var(--s5);
+  text-align:center;
+  transform:scale(.94);
+  transition:transform var(--d3) var(--e-spring);
+}
+.wxmask.show .wxcard{transform:none}
+.wxcard .ic{font-size:34px;line-height:1}
+.wxcard .t{font-size:var(--fs-15);font-weight:600;margin-top:var(--s3)}
+.wxcard .s{font-size:var(--fs-12);color:var(--text-2);line-height:2;margin-top:var(--s2)}
+.wxcard .s b{color:var(--text-1);font-weight:600}
+.wxcard button{
+  width:100%;height:42px;border-radius:var(--r-pill);
+  font-family:var(--ff);font-size:var(--fs-13);font-weight:600;cursor:pointer;
+  margin-top:var(--s3);border:1px solid var(--hair-2);
+  background:rgba(255,255,255,.06);color:var(--text-1);
+  transition:transform var(--d1) var(--e-out);
+}
+.wxcard button:active{transform:scale(.97)}
+.wxcard button.primary{background:#fff;color:#000;border-color:#fff}
 
 @media(prefers-reduced-motion:reduce){*{transition-duration:.01ms!important}}
 </style>
@@ -331,10 +378,10 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   <div class="more" id="moreBtn">⋮</div>
 </div>
 
-<div class="composer">
-  <input id="wishInput" type="text" maxlength="40" placeholder="对着流星许下愿望 ⛄" enterkeyhint="send">
-  <button class="send" id="sendBtn" disabled>↑</button>
-</div>
+<form class="composer" aria-label="许下愿望" autocomplete="off">
+  <input id="wishInput" type="text" maxlength="40" placeholder="对着流星许下愿望" enterkeyhint="send" aria-label="你的愿望">
+  <button class="send" id="sendBtn" type="submit" aria-label="发送愿望" aria-disabled="true">↑</button>
+</form>
 
 <div class="toast" id="toast"><span class="ic">✦</span><span id="toastTxt">许愿成功</span><span class="ago" id="toastAgo">现在</span></div>
 
@@ -369,8 +416,19 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   </div>
   <div class="saveview-b"><img id="saveImg" alt="星图预览" draggable="false"></div>
   <div class="saveview-f">
+    <p class="save-help" id="saveHelp">预览准备好后再保存图片。</p>
     <button id="saveCancel">取消</button>
     <button id="saveOk" class="primary">保存图片</button>
+  </div>
+</div>
+
+<div class="wxmask" id="wxmask">
+  <div class="wxcard">
+    <div class="ic">🌐</div>
+    <div class="t">保存当前这张星图</div>
+    <div class="s">先在本页<b>长按预览图片</b>，查看是否有保存选项。<br>如果微信没有提供保存菜单，可用<b>纯图模式截屏</b>留住当前愿望。<br>换浏览器不会自动带走微信里的愿望。</div>
+    <button id="wxCopy" class="primary">复制页面链接</button>
+    <button id="wxOk">知道了</button>
   </div>
 </div>
 <script>
@@ -400,6 +458,7 @@ function resize() {
   sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   buildStars();
+  layoutWishNodes();
 }
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 250));
@@ -967,24 +1026,56 @@ const wishLayer = document.createElement('div');
 wishLayer.style.cssText = 'position:fixed;inset:0;z-index:4;pointer-events:none;overflow:hidden';
 document.body.appendChild(wishLayer);
 
-const MAX_LABELS = 12;
-function addWishLabel(text, fx, fy, instant) {
+const MAX_LABELS = 8;
+const WISH_SLOTS = [0, 7, 4, 3, 6, 1, 2, 5];
+function wishLabelWidth() { return Math.min(170, (W - 64) / 2 - 12); }
+function wishLayoutSpot(index) {
+  const slot = WISH_SLOTS[index % WISH_SLOTS.length];
+  const top = Math.min(H * 0.30, 172);
+  const bottom = Math.max(top + 150, H - 148);
+  return {
+    x: W * (slot % 2 ? 0.73 : 0.27),
+    y: top + Math.floor(slot / 2) * (bottom - top) / 3
+  };
+}
+function layoutWishNodes() {
+  wishNodes.forEach((node, i) => Object.assign(node, wishLayoutSpot(i)));
+  closedConstellation = wishNodes.length >= 4;
+  for (const box of wishLayer.children) {
+    const node = wishNodes.find(n => String(n.ts) === box.dataset.nodeId);
+    if (!node) { box.remove(); continue; }
+    box.style.left = node.x + 'px';
+    box.style.top = node.y + 'px';
+    box.style.width = wishLabelWidth() + 'px';
+  }
+  wishKeep = wishNodes.map(n => ({ x:n.x, y:n.y, w:wishLabelWidth(), t:0, dur:Infinity, ph:0 }));
+}
+function constellationPathNodes() {
+  // 沿外框连接，避免按提交顺序把线来回交叉。
+  const order = [0, 2, 4, 6, 7, 5, 3, 1];
+  return wishNodes.slice().sort((a, b) =>
+    order.indexOf(WISH_SLOTS[wishNodes.indexOf(a)]) - order.indexOf(WISH_SLOTS[wishNodes.indexOf(b)]));
+}
+function addWishLabel(text, fx, fy, instant, nodeId) {
   // 外层 box 负责定位与漂浮，内层 el 负责弹入 —— 职责分离，避免 transform 互相覆盖
+  const node = nodeId == null ? null : wishNodes.find(n => n.ts === nodeId);
+  if (nodeId != null && !node) return;
   const box = document.createElement('div');
+  if (node) { fx = node.x; fy = node.y; box.dataset.nodeId = String(nodeId); }
   const x = fx == null ? W * rand(0.16, 0.84) : fx;
   const y = fy == null ? H * rand(0.24, 0.58) : fy;
   box.style.cssText =
     'position:absolute;left:' + x + 'px;top:' + y + 'px' +
-    ';transform:translate(-50%,-50%);white-space:nowrap';
+    ';transform:translate(-50%,-50%);width:' + wishLabelWidth() + 'px;text-align:center';
   const el = document.createElement('div');
   el.textContent = text;
   // 在该点留下"星尘环绕"，让愿望文字不是静止的贴图（常驻，直到愿望被清空）
   wishKeep.push({
     x, y, w: el.offsetWidth || 80, t: 0, dur: Infinity, ph: rand(0, TAU)
   });
-  const drift = rand(-16, 16), dur = rand(4600, 7600);
+  const drift = rand(-3, 3), dur = rand(4600, 7600);
   el.style.cssText =
-    'color:#fff;font-size:17px;font-weight:500;letter-spacing:.08em' +
+    'color:#fff;font-size:' + (W < 360 ? 13 : 15) + 'px;font-weight:500;letter-spacing:.04em;line-height:1.55;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden' +
     ';text-shadow:0 0 14px rgba(255,255,255,.55),0 0 34px rgba(160,200,255,.35),0 1px 4px rgba(0,0,0,.7)' +
     ';opacity:1;transform:scale(1)' +
     ';filter:blur(0)' +
@@ -1020,12 +1111,7 @@ function addWishLabel(text, fx, fy, instant) {
     { duration: dur, direction: 'alternate', iterations: Infinity, easing: 'ease-in-out' }
   );
   // 超出上限时移除最早的一个，屏幕不会堆积
-  while (wishLayer.children.length > MAX_LABELS) {
-    const old = wishLayer.firstElementChild;
-    old.style.opacity = '0';
-    setTimeout(() => old.remove(), 600);
-    break;
-  }
+  while (wishLayer.children.length > MAX_LABELS) wishLayer.firstElementChild.remove();
 }
 
 /* ---------- 愿望星图：多个愿望连成图案 ---------- */
@@ -1037,27 +1123,8 @@ let webBorn = -1;                      // 最新节点接入时间 → 连线生
 let webBranches = [];                  // 新节点接入时射出的短枝
 
 function pickWishSpot() {
-  // 在安全区内随机取点，且与所有旧节点保持间距 → 愿望自然铺开，不会越许越挤
-  const x0 = W * 0.13, x1 = W * 0.87, y0 = H * 0.19, y1 = H * 0.66;
-  const gap = wishNodes.length === 0 ? 0 : 110 + Math.min(wishNodes.length, 7) * 15;
-  for (let i = 0; i < 44; i++) {
-    const x = rand(x0, x1), y = rand(y0, y1);
-    if (!wishNodes.length) return { x, y };
-    let ok = true;
-    for (const p of wishNodes) {
-      if (Math.hypot(p.x - x, p.y - y) < gap) { ok = false; break; }
-    }
-    if (ok) return { x, y };
-  }
-  // 兜底：取距离所有旧节点最远的采样点
-  let best = null, bestD = -1;
-  for (let i = 0; i < 80; i++) {
-    const x = rand(x0, x1), y = rand(y0, y1);
-    let d = Infinity;
-    for (const p of wishNodes) d = Math.min(d, Math.hypot(p.x - x, p.y - y));
-    if (d > bestD) { bestD = d; best = { x, y }; }
-  }
-  return best || { x: W * 0.5, y: H * 0.34 };
+  // 预留八个独立位置，第四、第五个愿望不会被挤回第一个附近。
+  return wishLayoutSpot(Math.min(wishNodes.length, MAX_NODES - 1));
 }
 function saveNodes() {
   try { localStorage.setItem(LS_NODE, JSON.stringify(wishNodes.slice(-MAX_NODES))); } catch (e) {}
@@ -1069,12 +1136,10 @@ function maybeConstellate() {
   const n = wishNodes.length;
   if (n < 4) return;
   const first = wishNodes[0], last = wishNodes[n - 1];
-  if (last.constName) return;                       // 已成星座，不重复命名
-  if (Math.hypot(first.x - last.x, first.y - last.y) > W * 1.2) return;   // 首尾太远，不强合
-  // 吸附：把最后一个节点移到首节点附近 → 闭合
-  const a = rand(0, TAU), r = rand(150, 200);
-  last.x = clamp(first.x + Math.cos(a) * r, W * 0.12, W * 0.88);
-  last.y = clamp(first.y + Math.sin(a) * r * 0.7, H * 0.16, H * 0.68);
+  const named = wishNodes.find(p => p.constName);
+  closedConstellation = true;
+  if (named) { last.constName = named.constName; saveNodes(); return; }
+  // 仅用连线闭合，绝不移动文字和节点；第五个起沿用同一个星座名字。
   last.constName = CONST_NAMES[irand(0, CONST_NAMES.length - 1)] + '座 · 编号 ' + irand(10, 99);
   closedConstellation = true;
   webBranches.push({ x: last.x, y: last.y, ang: rand(0, TAU), len: 70, t: 0, dur: 1.4 });
@@ -1086,8 +1151,10 @@ function maybeConstellate() {
   SFX.chime();
 }
 function pushWishNode(x, y, text, live) {
-  wishNodes.push({ x, y, text, ts: Date.now() });
+  const node = { x, y, text, ts: Date.now() };
+  wishNodes.push(node);
   while (wishNodes.length > MAX_NODES) wishNodes.shift();
+  layoutWishNodes();
   if (live) {
     webBorn = performance.now();
     // 新节点接入：向四周射出 2–3 条短枝，长出一瞬再隐去
@@ -1096,6 +1163,7 @@ function pushWishNode(x, y, text, live) {
     }
   }
   saveNodes();
+  return node;
 }
 /* Catmull-Rom 平滑：让穿过愿望点的线是流动的弧，而不是生硬折线 */
 function webPath(pts) {
@@ -1143,7 +1211,8 @@ function drawWishWeb(t, dt) {
   if (wishNodes.length < 2) { fctx.restore(); return; }
   // 星座成形：闭合成环
   const closed = closedConstellation && wishNodes.length >= 4 && !!wishNodes[wishNodes.length - 1].constName;
-  const path = webPath(closed ? [...wishNodes, wishNodes[0]] : wishNodes);
+  const ordered = constellationPathNodes();
+  const path = webPath(closed ? [...ordered, ordered[0]] : ordered);
   // 闭合时内部填一层极淡的辉光 → "图案"成形
   if (closed && path.length > 3) {
     fctx.fillStyle = 'rgba(178,206,255,.035)';
@@ -1216,12 +1285,18 @@ function drawWishWeb(t, dt) {
   fctx.restore();
 }
 
-/* ---------- 星愿值：点住流星积累，满 12 次触发超级流星暴 ---------- */
+/* ---------- 星愿值：许愿或点住流星积累，满 12 次触发超级流星暴 ---------- */
 const ENERGY_MAX = 12;
+const LS_ENERGY = 'meteor_wish_energy_v2';
 let wishEnergy = 0;
+try {
+  const stored = localStorage.getItem(LS_ENERGY);
+  wishEnergy = stored == null ? wishes.length % ENERGY_MAX : clamp(Number(stored) || 0, 0, ENERGY_MAX - 1);
+} catch (e) { wishEnergy = wishes.length % ENERGY_MAX; }
 const energyEl = document.getElementById('energy');
 const energyN = document.getElementById('energyN');
 function renderEnergy() {
+  try { localStorage.setItem(LS_ENERGY, String(wishEnergy)); } catch (e) {}
   if (wishEnergy <= 0) { energyEl.hidden = true; return; }
   energyEl.hidden = false;
   energyN.textContent = wishEnergy;
@@ -1715,14 +1790,35 @@ const sendBtn = document.getElementById('sendBtn');
 const composer = document.querySelector('.composer');
 let meteorBlessing = false;
 
-input.addEventListener('input', () => {
+let composingWish = false;
+let submittingWish = false;
+function syncWishInput() {
   const v = input.value.trim();
-  sendBtn.disabled = !v;
-  sendBtn.style.opacity = v ? '1' : '';
-  // 打字反馈：输入框点亮；写到 2 字以上发送按钮进入"就绪"发光态
+  // 不用原生 disabled，避免 iOS 中文候选确认时按钮仍被禁用。
+  sendBtn.disabled = false;
+  sendBtn.setAttribute('aria-disabled', String(!v));
+  sendBtn.style.opacity = v ? '1' : '.35';
   composer.classList.toggle('typing', v.length > 0);
-  sendBtn.classList.toggle('ready', v.length >= 2);
-});
+  sendBtn.classList.toggle('ready', v.length > 0);
+}
+input.addEventListener('input', syncWishInput);
+input.addEventListener('change', syncWishInput);
+input.addEventListener('compositionstart', () => { composingWish = true; });
+input.addEventListener('compositionend', () => { composingWish = false; syncWishInput(); });
+input.addEventListener('blur', syncWishInput);
+function syncKeyboardViewport() {
+  const v = window.visualViewport;
+  const focused = document.activeElement === input;
+  const lift = v && focused ? Math.max(0, window.innerHeight - v.height - v.offsetTop) : 0;
+  document.documentElement.style.setProperty('--keyboard-lift', lift + 'px');
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncKeyboardViewport);
+  window.visualViewport.addEventListener('scroll', syncKeyboardViewport);
+}
+input.addEventListener('focus', syncKeyboardViewport);
+input.addEventListener('blur', syncKeyboardViewport);
+syncWishInput();
 function timeAgo(ts) {
   const d = Date.now() - ts;
   if (d < 60000) return '现在';
@@ -1733,8 +1829,11 @@ function timeAgo(ts) {
 }
 function submitWish() {
   const txt = input.value.trim();
-  if (!txt) return;
-  wishes.unshift({ text: txt, ts: Date.now(), bless: meteorBlessing });
+  if (!txt || submittingWish) return;
+  submittingWish = true;
+  setTimeout(() => { submittingWish = false; }, 220);
+  const blessing = meteorBlessing;
+  wishes.unshift({ text: txt, ts: Date.now(), bless: blessing });
   if (wishes.length > 200) wishes.pop();
   try { localStorage.setItem(LS_WISH, JSON.stringify(wishes)); } catch (e) {}
   renderWishes();
@@ -1765,9 +1864,10 @@ function submitWish() {
   // 输入框里的文字本身也飞向夜空 —— 从框中心出发，先扬后落，抵达时交给星尘拼字
   const ir = input.getBoundingClientRect();
   flyTextToSky(txt, ir.left + ir.width * 0.34, ir.top + ir.height / 2, tx, ty);
-  pushWishNode(tx, ty, txt, true);          // 登记为星图节点
+  const addedNode = pushWishNode(tx, ty, txt, true); // 文字与节点使用同一个标识
   maybeConstellate();                       // 第 4 个愿望起 → 可能闭合成星座
   renderWishes();                            // 节点加入后再刷新副标题的星图计数
+  addEnergy();                               // 每个愿望也攒 1 点星愿 → 满 12 触发超级流星暴
   startWishBurst(bx, by, tx, ty, textPts);
   startBgm();                                // 第一个愿望触发播放；后续愿望不重启
   SFX.whoosh();
@@ -1775,7 +1875,7 @@ function submitWish() {
   toast('愿望正在飞向星空…');
   // ④ 星尘轮廓拼出后，DOM 文字再弹入并与轮廓交叠
   setTimeout(() => {
-    addWishLabel(txt + (meteorBlessing ? ' ✦' : ''), tx, ty);
+    addWishLabel(txt + (blessing ? ' ✦' : ''), tx, ty, false, addedNode.ts);
     // 抵达爆发：双冲击波 + 闪光 + 辉光
     rings.push({ x: tx, y: ty, t: 0, dur: 0.95, max: 130, w: 2.2, a: 0.6 });
     rings.push({ x: tx, y: ty, t: 0, dur: 1.25, max: 210, w: 1.1, a: 0.3 });
@@ -1793,12 +1893,20 @@ function submitWish() {
 
   meteorBlessing = false;
   input.value = '';
-  sendBtn.disabled = true;
-  composer.classList.remove('typing');
-  sendBtn.classList.remove('ready');
+  syncWishInput();
+  input.blur();
+  composingWish = false;
 }
-sendBtn.addEventListener('click', submitWish);
-input.addEventListener('keydown', e => { if (e.key === 'Enter') submitWish(); });
+composer.addEventListener('submit', e => {
+  e.preventDefault();
+  submitWish();
+});
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !composingWish && !e.isComposing && e.keyCode !== 229) {
+    e.preventDefault();
+    submitWish();
+  }
+});
 
 /* ---------- 点住流星 → 流星祝福 ---------- */
 sky.addEventListener('click', e => {
@@ -1926,7 +2034,8 @@ function buildStarMapCanvas() {
   // 星图连线
   if (wishNodes.length >= 2) {
     const closed = closedConstellation && !!wishNodes[wishNodes.length - 1].constName;
-    const pts = webPath(closed ? [...wishNodes, wishNodes[0]] : wishNodes);
+    const ordered = constellationPathNodes();
+    const pts = webPath(closed ? [...ordered, ordered[0]] : ordered);
     g.strokeStyle = 'rgba(178,206,255,.5)';
     g.lineWidth = 1.2 * scale;
     g.beginPath();
@@ -1949,10 +2058,18 @@ function buildStarMapCanvas() {
   // 愿望文字
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.font = '500 ' + (15 * scale) + 'px ' + CONST_FONT;
+  g.font = '500 ' + ((W < 360 ? 13 : 15) * scale) + 'px ' + CONST_FONT;
   for (const n of wishNodes) {
+    const lines = []; let line = '';
+    for (const ch of n.text) {
+      if (g.measureText(line + ch).width > wishLabelWidth() * scale && line) { lines.push(line); line = ''; }
+      line += ch;
+    }
+    if (line) lines.push(line);
+    if (lines.length > 3) lines[2] = lines[2].slice(0, -1) + '…';
+    const visible = lines.slice(0, 3), lineHeight = 23 * scale;
     g.fillStyle = '#ffffff';
-    g.fillText(n.text, n.x * scale, n.y * scale);
+    visible.forEach((s, i) => g.fillText(s, n.x * scale, n.y * scale + (i - (visible.length - 1) / 2) * lineHeight));
   }
   // 标题与题记
   g.font = '600 ' + (22 * scale) + 'px ' + CONST_FONT;
@@ -1986,10 +2103,14 @@ function openSavePreview() {
   const cv = buildStarMapCanvas();
   saveDataUrl = cv.toDataURL('image/png');
   document.getElementById('saveImg').src = saveDataUrl;
+  document.getElementById('saveHelp').textContent = IS_WECHAT
+    ? '微信内请先长按这张图；没有保存菜单时，可点纯图模式截屏。无需换浏览器。'
+    : isIOSDevice() ? '长按这张预览图保存；或点按钮打开大图。' : '保存后请在浏览器下载记录中查看 PNG。';
+  document.getElementById('saveOk').textContent = IS_WECHAT ? '纯图模式 / 截屏' : '保存图片';
   savemask.classList.add('show');
 }
 function closeSavePreview() {
-  savemask.classList.remove('show');
+  savemask.classList.remove('show', 'image-only');
   saveDataUrl = null;
 }
 function isIOSDevice() {
@@ -1999,8 +2120,16 @@ function isIOSDevice() {
   if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return true;
   return false;
 }
+const IS_WECHAT = /MicroMessenger/i.test(navigator.userAgent);
+const wxmask = document.getElementById('wxmask');
 function doSaveStarMap() {
   if (!saveDataUrl) return;
+  if (IS_WECHAT) {
+    // 不跳转、不下载、不复制链接，保留微信当前会话中已经生成的图片。
+    savemask.classList.add('image-only');
+    document.getElementById('saveHelp').textContent = '长按图片尝试保存；若无菜单，用手机截屏。点图片外的黑边返回。';
+    return;
+  }
   const a = document.createElement('a');
   a.href = saveDataUrl;
   if (!isIOSDevice() && 'download' in a) {
@@ -2025,11 +2154,33 @@ function doSaveStarMap() {
       toast('大图已打开，长按即可保存');
     } else {
       // 弹窗被拦：预览页里的图同样可以长按保存
-      toast('长按预览图即可保存');
+      document.getElementById('saveHelp').textContent = '新窗口未打开，请长按当前预览图保存。';
+      return;
     }
   }
   closeSavePreview();
 }
+document.getElementById('wxOk').addEventListener('click', () => wxmask.classList.remove('show'));
+document.getElementById('wxCopy').addEventListener('click', async () => {
+  const url = location.href;
+  let okFlag = false;
+  try { await navigator.clipboard.writeText(url); okFlag = true; }
+  catch (e) {
+    // 兜底：老式 textarea + execCommand（部分 webview 只认这个）
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select(); ta.setSelectionRange(0, url.length);
+      okFlag = document.execCommand('copy');
+      ta.remove();
+    } catch (e2) { okFlag = false; }
+  }
+  toast(okFlag ? '链接已复制，粘贴到浏览器打开' : '复制失败，请手动复制地址栏链接');
+  wxmask.classList.remove('show');
+});
+wxmask.addEventListener('click', (e) => { if (e.target === wxmask) wxmask.classList.remove('show'); });
 const savemask = document.getElementById('savemask');
 document.getElementById('saveBtn').addEventListener('click', () => {
   sheet.classList.remove('show');
@@ -2037,11 +2188,17 @@ document.getElementById('saveBtn').addEventListener('click', () => {
 });
 document.getElementById('saveCancel').addEventListener('click', closeSavePreview);
 document.getElementById('saveOk').addEventListener('click', doSaveStarMap);
-savemask.addEventListener('click', (e) => { if (e.target === savemask) closeSavePreview(); });
+savemask.addEventListener('click', e => {
+  if (savemask.classList.contains('image-only') && e.target.id !== 'saveImg' && !e.target.closest('.saveview-f')) {
+    savemask.classList.remove('image-only');
+  } else if (e.target === savemask) closeSavePreview();
+});
 document.getElementById('clearBtn').addEventListener('click', () => {
   if (!wishes.length) { toast('愿望清单本来是空的'); return; }
   wishes = [];
   wishNodes = []; saveNodes();          // 星图一并清空
+  wishEnergy = 0; renderEnergy();
+  closedConstellation = false;
   wishLayer.innerHTML = '';             // 星空中的文字标签同步移除
   wishKeep = [];
   try { localStorage.removeItem(LS_WISH); } catch (e) {}
@@ -2091,10 +2248,13 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+wishNodes = wishNodes.filter(n => n && typeof n.text === 'string').slice(-MAX_NODES);
 resize();
 renderWishes();
-// 恢复星图：节点 + 连线 + 静态愿望文字（刷新后图案还在）
-for (const n of wishNodes) addWishLabel(n.text, n.x, n.y, true);
+renderEnergy();
+// 老版坐标也重新适配当前手机尺寸，文字与节点同源。
+for (const n of wishNodes) addWishLabel(n.text, n.x, n.y, true, n.ts);
+saveNodes();
 // 预生成一批流星并错开年龄，打开页面就有流星划过
 for (let i = 0; i < 16; i++) {
   spawnMeteor('ambient');
