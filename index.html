@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="app-build" content="20261015-heartcurve">
+<meta name="app-build" content="20261015-heartneck">
 <link rel="icon" href="data:,">
 <title>流星雨许愿</title>
 <style>
@@ -1391,7 +1391,7 @@ const SPAN_MAX = 312;                    // 图案纵向绝对上限 → 不会�
 //    原来固定 264 会让宽屏比例 1.29（扁得像气球）、手机比例 0.99（偏方）。
 //    改成「高度 = 宽度 / SPAN_RATIO」，各屏比例就一致了。
 // 1.19 是按用户给的参考图量的（宽 652 / 高 546）；原来 1.06 出来的实际比例是 1.12，偏瘦。
-const SPAN_RATIO = 1.133;                // 宽高比：由参考图中线的实测包围盒反推（887×783）
+const SPAN_RATIO = 1.178;                // 宽高比：参考图描边中线的实测包围盒（2×457 / 776）
 const JITTER_X = 8, JITTER_Y = 6;
 function hash01(n) { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); }
 /* ============================================================
@@ -1403,19 +1403,26 @@ function hash01(n) { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Ma
 const SHAPE_SCHEMES = {
   heart: {
     name: '爱心', labelW: 150,
-    // 标准爱心（2026-10-15 最终版）：整条外缘直接用「参考图中线」逐像素抠出来的采样，
-    // 见下面的 outline / 'O' 段型。点位只是「8 颗星落在曲线上的位置」。
-    //   凹口 (0, .2513) → 上瓣圆顶 (±.6234, 0) → 最宽 (±1, .318) → 腰部 (±.6116, 2/3) → 底尖 (0, 1)
-    // 量取依据：`deploy/extract-outline.py` 逐行扫亮段取中点 → 对称化 → 单调化 → 反推星位。
+    // 标准爱心（2026-10-15 最终版）：整条轮廓直接用「参考图中线」逐像素抠出来的采样，
+    // 见下面的 outline（外缘）+ neck（凹口→圆顶的内凹弧），配 'O' / 'N' 段型。
+    // 点位只是「8 颗星落在曲线上的位置」。
+    //   凹口 (0, .2658) → 上瓣圆顶 (±.6234, 0) → 最宽 (±1, .318) → 腰部 (±.6116, 2/3) → 底尖 (0, 1)
+    // 量取依据：`deploy/extract-outline.py`（外缘，逐行扫亮段取中点）
+    //        + `deploy/extract-neck.py`（内凹弧，逐列扫第一个亮段取中点）→ 对称化 → 单调化。
+    // ⚠️⚠️ 凹口→圆顶这两段**必须是弯的**（内凹弧），绝不能写成直线 —— 用户两次反馈
+    //      「最上面那两条线是直的，不是弯的」。参考图里它们从凹口向外上方弯出去，
+    //      与直线最大偏差 11% 半宽（肉眼一眼能看出）。
+    // ⚠️ 量 u 时基准是「最宽处的半宽」= 包围盒宽/2，**不是图高** —— 用图高会把圆顶那一列
+    //      算到包围盒之外，扫出来的是空白（踩过：u 不单调、噪声乱飞）。
     // ⚠️ 腰部 x 不能 < .50：两个腰部点同处 v=2/3、同列判定不成立，会进 crossDu，
     //    du 掉到 2x（.40 时掉到 0.8）。≥ .50 时 |x-(-x)| ≥ 1，du 才保得住 1。
     // ⚠️ 腰部 v 只能等于 2/3：再往下（如 .70）离底尖不足 1/3 → 又进 crossDu，du 掉到 0.61。
     // ⚠️ 凹口 1/4 与标签约束的冲突靠 `labelV` 绕开（见下），不要再退回 1/3。
-    pts: [[0, .2513], [.6234, 0], [1, .318], [.6116, 2 / 3], [0, 1], [-.6116, 2 / 3], [-1, .318], [-.6234, 0]],
-    // 标签落点（不写就是跟星位同 v）。凹口的标签从 .2513 挪到 0.335：
+    pts: [[0, .2658], [.6234, 0], [1, .318], [.6116, 2 / 3], [0, 1], [-.6116, 2 / 3], [-1, .318], [-.6234, 0]],
+    // 标签落点（不写就是跟星位同 v）。凹口的标签从 .2658 挪到 0.335：
     //   ↔ 圆顶(0)   纵距 0.335 ≥ 0.33 ✅   ↔ 腰部(2/3) 纵距 0.332 ≥ 0.33 ✅
     //   ↔ 最宽点(.318) 纵距 0.017 → 仍计入 crossDu，而它的横向差是 1 → du 保住 1，标签不缩水。
-    // 可动窗口很窄（0.33~0.3367，被腰部 2/3 夹住），改凹口深度或腰部 v 时必须同步重算。
+    // 可动窗口很窄（0.33~0.3367，上界被腰部 2/3 夹住），改凹口深度或腰部 v 时必须同步重算。
     labelV: [0.335, 0, .318, 2 / 3, 1, 2 / 3, .318, 0],
     // ⚠️⚠️ 这是整条「右半边外缘」的中线采样：v = i/(N-1) 从圆顶(0)到底尖(1)，u = 该处半宽（0~1）。
     //    爱心最像不像参考图，全看这张表 —— 改点位不会改变形状，改它才会。
@@ -1432,22 +1439,35 @@ const SHAPE_SCHEMES = {
       0.4136, 0.3973, 0.3827, 0.3676, 0.3512, 0.3365, 0.3202, 0.3071, 0.2909, 0.2724, 0.2575, 0.2404,
       0.2243, 0.2063, 0.1899, 0.1693, 0.1525, 0.1272, 0.1079, 0.0816, 0.0612, 0.0408, 0.0204, 0.0000,
     ],
+    // ⚠️⚠️ 「凹口 → 圆顶」的内凹弧（右半边）：v = i/(N-1) * neckV 从圆顶(0) 到凹口(neckV)，
+    //     u = 该处半宽。**这条曲线是爱心像不像的关键** —— 写成直线就变成「两个三角」。
+    //     来源 `deploy/extract-neck.py`（逐列从上往下扫第一个亮段取中点）。
+    //     ⚠️ 只在 v ≤ neckV 时有意义；v > neckV 用上面的 outline。
+    neckV: 0.2658,
+    neck: [
+      0.6234, 0.6042, 0.5850, 0.5658, 0.4967, 0.4526, 0.4134, 0.3823,
+      0.3574, 0.3343, 0.3124, 0.2909, 0.2743, 0.2557, 0.2384, 0.2231,
+      0.2081, 0.1931, 0.1799, 0.1659, 0.1539, 0.1408, 0.1291, 0.1168,
+      0.1058, 0.0949, 0.0836, 0.0720, 0.0620, 0.0440, 0.0070, 0.0000,
+    ],
     // ⚠️ 每段的线型必须显式声明：
-    //    'L' = 直线（只有凹口那两条内缘是直的，和参考图一致）
-    //    'O' = 沿上面 outline 曲线走（整条外缘，连续平滑、无折角、底尖是圆角）
+    //    'L' = 直线
+    //    'O' = 沿 outline 曲线走（圆顶→最宽→腰→底尖的整条外缘，连续平滑、底尖是圆角）
+    //    'N' = 沿 neck 曲线走（凹口→圆顶的内凹弧）
     //    不声明 segs 的方案仍走 Catmull-Rom 平滑。
-    // ⚠️ 历史教训：① 整条走 Catmull-Rom → 底尖被磨圆、侧面鼓成弧，像「心形气球」；
-    //    ② 矫枉过正全改直线 → 下半身直挺挺、最宽点处有折角，用户反馈「线太直了，没有弯曲感」。
-    //    正确答案是 ③：外缘用参考图真实曲线，凹口用直线。
+    // ⚠️ 历史教训（三轮才收敛）：① 整条走 Catmull-Rom → 底尖被磨圆、侧面鼓成弧，像「心形气球」；
+    //    ② 矫枉过正全改直线 → 下半身直挺挺、最宽点有折角，用户「线太直了，没有弯曲感」；
+    //    ③ 只把外缘改曲线、凹口两侧留直线 → 用户「最上面那两条线是直的，不是弯的」。
+    //    正确答案：**整条轮廓都走参考图的真实曲线**（外缘 outline + 内凹 neck），一段直线都没有。
     segs: [
-      { t: 'L' },   // 0 凹口 → 右圆顶（直线）
+      { t: 'N' },   // 0 凹口 → 右圆顶（内凹弧，查 neck 表）
       { t: 'O' },   // 1 右圆顶 → 右最宽（上瓣外弧）
       { t: 'O' },   // 2 右最宽 → 右腰
       { t: 'O' },   // 3 右腰 → 底尖（圆角收口）
       { t: 'O' },   // 4 底尖 → 左腰
       { t: 'O' },   // 5 左腰 → 左最宽
       { t: 'O' },   // 6 左最宽 → 左圆顶
-      { t: 'L' },   // 7 左圆顶 → 凹口（直线）
+      { t: 'N' },   // 7 左圆顶 → 凹口（内凹弧，查 neck 表）
     ],
   },
   lens: {
@@ -1750,6 +1770,15 @@ function outlineU(v) {
   const i = Math.floor(t), k = Math.min(o.length - 1, i + 1);
   return o[i] + (o[k] - o[i]) * (t - i);
 }
+// 'N' 段用：按 v 查「凹口 → 圆顶内凹弧」的半宽。只在 v ∈ [0, neckV] 有意义。
+function neckU(v) {
+  const s = activeScheme(), o = s.neck;
+  if (!o) return 0;
+  const vn = s.neckV || 1;
+  const t = clamp(v / vn, 0, 1) * (o.length - 1);
+  const i = Math.floor(t), k = Math.min(o.length - 1, i + 1);
+  return o[i] + (o[k] - o[i]) * (t - i);
+}
 // 精确路径：按方案声明的 segs 逐段生成 —— 直线段就是直线、圆弧段是二次贝塞尔、
 // 'O' 段沿参考图中线走。每个点带 seg（段号）→ 按段上色时能对上「这一段属于哪两个愿望」。
 function exactPath(pts, closed, segs) {
@@ -1761,19 +1790,27 @@ function exactPath(pts, closed, segs) {
     const a = pts[i], b = pts[(i + 1) % n];
     const seg = segs[i % segs.length];
     const az = a.z || 0, bz = b.z || 0;
-    if (seg && seg.t === 'O' && s.outline) {
+    if (seg && (seg.t === 'O' || seg.t === 'N') && (s.outline || s.neck)) {
       // 沿参考图中线：以 v 为参数，u 查表（左半边镜像）。
+      //   'O' 查 outline（圆顶 → 最宽 → 腰 → 底尖的外缘）
+      //   'N' 查 neck  （凹口 → 圆顶的内凹弧）
       // ⚠️ 节点带抖动（±8/±6px），曲线本身不带 —— 所以要把「曲线点 → 实际节点」的偏差
       //    按 t 线性混合回去，否则段与段接缝处会错开一个抖动量。
-      const pu = s.pts;
-      const side = (pu[i][0] + pu[(i + 1) % n][0]) >= 0 ? 1 : -1;
-      const av = pu[i][1], bv = pu[(i + 1) % n][1];
-      const eax = a.x - (W / 2 + pu[i][0] * f.dx), eay = a.y - (f.y0 + av * f.span);
-      const ebx = b.x - (W / 2 + pu[(i + 1) % n][0] * f.dx), eby = b.y - (f.y0 + bv * f.span);
+      const U = seg.t === 'N' ? neckU : outlineU;
+      // ⚠️⚠️ 方案点位 pu 只有 8 个，而传入的 pts 在闭合场景可能多一个「重复的首点」——
+      //     所以索引必须按 pu 自己的长度取模，**不能按 n**。
+      //     踩过：buildStarMapCanvas 传 9 个点 → pu[8] undefined → TypeError，
+      //     星图海报导出直接崩（凹口段是直线时走不到这里，改成 'N' 后立刻暴露）。
+      const pu = s.pts, m = pu.length;
+      const ia = i % m, ib = (i + 1) % m;
+      const side = (pu[ia][0] + pu[ib][0]) >= 0 ? 1 : -1;
+      const av = pu[ia][1], bv = pu[ib][1];
+      const eax = a.x - (W / 2 + pu[ia][0] * f.dx), eay = a.y - (f.y0 + av * f.span);
+      const ebx = b.x - (W / 2 + pu[ib][0] * f.dx), eby = b.y - (f.y0 + bv * f.span);
       for (let j = 0; j < SEG_PTS; j++) {
         const t = j / SEG_PTS, v = av + (bv - av) * t;
         out.push({
-          x: W / 2 + side * outlineU(v) * f.dx + eax * (1 - t) + ebx * t,
+          x: W / 2 + side * U(v) * f.dx + eax * (1 - t) + ebx * t,
           y: f.y0 + v * f.span + eay * (1 - t) + eby * t,
           z: az + (bz - az) * t,
           seg: i,
@@ -2922,7 +2959,9 @@ function buildStarMapCanvas() {
   if (wishNodes.length >= 2) {
     const closed = closedConstellation && !!wishNodes[wishNodes.length - 1].constName;
     const ordered = constellationPathNodes();
-    const pts = webPath(closed ? [...ordered, ordered[0]] : ordered);
+    // ⚠️ 不要传 [...ordered, ordered[0]] —— exactPath 自己会闭合（closed=true 时 last = n），
+    //    多传一个重复首点会让它多跑一段、并索引到方案点位之外（崩过）。
+    const pts = webPath(ordered, closed);
     g.strokeStyle = 'rgba(178,206,255,.5)';
     g.lineWidth = 1.2 * scale;
     g.beginPath();
