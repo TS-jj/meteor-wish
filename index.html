@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="app-build" content="20261015-heartneck">
+<meta name="app-build" content="20261016-celebrate">
 <link rel="icon" href="data:,">
 <title>流星雨许愿</title>
 <style>
@@ -39,6 +39,9 @@ body{
 #sky{touch-action:none}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 #fx{z-index:2;pointer-events:none}
+/* ⚠️ 烟花与仪式星尘必须单独一层，且 z-index 要压过 .poem（15）的深色柔光底。
+   放在 #fx（2）里会被诗句背景整块盖住 —— 实拍截图里「演出中段看不到烟花」就是这个原因。 */
+#fw{z-index:16;pointer-events:none}
 
 /* ============ 顶栏 ============ */
 .topbar{
@@ -268,14 +271,17 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 }
 /* 仪式标题先出现，避免正文毫无铺垫地直接摆在画面上。 */
 .poem-kicker{
-  display:flex;align-items:center;justify-content:center;gap:12px;
+  display:flex;align-items:center;justify-content:center;gap:10px;
   margin:0 auto 22px;
   color:#ffe6a6;font-size:11px;line-height:1;letter-spacing:.32em;font-weight:600;
   opacity:0;transform:translateY(12px) scale(.88);
   transition:opacity .85s var(--e-out) .3s,transform 1.05s cubic-bezier(.2,1.35,.32,1) .3s;
 }
+/* ⚠️ 仪式标题必须一行放下：文字不换行 + 两侧装饰线可收缩。
+   否则 390 宽下「星图圆满 · 愿望已被听见」会被挤成两行（实拍截图验证过）。 */
+.poem-kicker > span:last-child{white-space:nowrap;flex:0 0 auto}
 .poem-kicker::before,.poem-kicker::after{
-  content:'';width:54px;height:1px;
+  content:'';width:46px;height:1px;flex:0 1 auto;min-width:0;
   background:linear-gradient(90deg,transparent,rgba(255,227,157,.85));
   transform:scaleX(0);transform-origin:right center;
   transition:transform 1.15s cubic-bezier(.16,1,.3,1) .48s;
@@ -292,6 +298,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   display:block;
   min-height:1.85em;
   font-size:21px;line-height:1.85;letter-spacing:.14em;font-weight:500;
+  --ink:#ffffff;                     /* 逐字流光「落定」后的颜色（每行不同，见下） */
   opacity:0;transform:translateY(34px) scale(.88);
   transition:opacity .9s var(--e-out),transform 1.25s cubic-bezier(.16,1,.3,1);
   transition-delay:var(--ld,0s);
@@ -300,34 +307,88 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 .poem .pl.key{
   min-height:2.05em;margin:5px 0 7px;
   font-size:27px;font-weight:650;letter-spacing:.18em;
-  color:#fff1be;
+  color:#fff1be;--ink:#fff1be;
   text-shadow:0 0 22px rgba(255,228,154,.72),0 0 52px rgba(255,194,100,.28),0 2px 10px rgba(0,0,0,.84);
 }
-.poem .pl.tail{font-size:19px;color:rgba(231,241,255,.9)}
-/* 每个字从下方弹起并点亮；延时拉开到肉眼清晰可见，不再一闪就全部出现。 */
+.poem .pl.tail{font-size:19px;color:rgba(231,241,255,.9);--ink:rgba(231,241,255,.9)}
+/* 每个字从下方弹起并点亮 —— 颜色从冰蓝一路流过暖金再落定，
+   比单纯「白字淡入」更像一颗星被真正点着。 */
 .poem .pc{
   display:inline-block;
   opacity:0;transform:translateY(18px) scale(.56);
-  text-shadow:0 0 22px rgba(218,235,255,.78),0 0 48px rgba(149,195,255,.34),0 2px 9px rgba(0,0,0,.86);
+  color:var(--ink,#fff);
   transition:opacity .72s var(--e-out),transform .96s cubic-bezier(.18,1.55,.28,1);
   transition-delay:var(--td,0s);
 }
+/* ⚠️ keyframes 里只碰 color / text-shadow，绝不碰 opacity / transform ——
+   否则会和上面那条 transition 抢同一属性，逐字动画会抖。 */
+@keyframes pcShine{
+  0%{color:#79b4ff;text-shadow:0 0 26px rgba(110,180,255,.95),0 0 62px rgba(88,148,255,.52),0 2px 9px rgba(0,0,0,.86)}
+  38%{color:#ffe6a0;text-shadow:0 0 32px rgba(255,228,152,.98),0 0 74px rgba(255,190,90,.56),0 2px 9px rgba(0,0,0,.86)}
+  100%{color:var(--ink,#fff);text-shadow:0 0 22px rgba(218,235,255,.78),0 0 48px rgba(149,195,255,.34),0 2px 9px rgba(0,0,0,.86)}
+}
 .poem.show{opacity:1;will-change:opacity}
 .poem.show::before{opacity:1;transform:scale(1)}
-.poem.show::after{opacity:1;transform:scale(1) rotate(0)}
+.poem.show::after{opacity:1;transform:scale(1) rotate(0);animation:ringPulse 3.4s ease-in-out 1.6s infinite}
+/* 星轨环展开后持续「呼吸」：光晕一圈圈涨落，画面不会在展开完就死住。 */
+@keyframes ringPulse{
+  0%,100%{box-shadow:0 0 54px 12px rgba(140,188,255,.13),inset 0 0 42px rgba(185,218,255,.09)}
+  50%{box-shadow:0 0 96px 28px rgba(152,198,255,.27),inset 0 0 66px rgba(204,230,255,.18)}
+}
 .poem.show .poem-shell{opacity:1;transform:none}
 .poem.show .poem-kicker{opacity:1;transform:none}
 .poem.show .poem-kicker::before,.poem.show .poem-kicker::after{transform:scaleX(1)}
 .poem.show .poem-star{opacity:1;transform:scale(1) rotate(0)}
 .poem.show .pl{opacity:1;transform:none}
-.poem.show .pc{opacity:1;transform:none}
+.poem.show .pc{opacity:1;transform:none;animation:pcShine 1.5s cubic-bezier(.2,.9,.25,1) var(--td,0s) both}
 .poem.done{will-change:auto}
 .poem.done .poem-shell,.poem.done .poem-kicker,.poem.done .poem-star,
 .poem.done .pl,.poem.done .pc{transition:none;transform:none;opacity:1;will-change:auto}
+/* ⚠️ 这两条必须写在 .poem.show::after / .poem.show .pc 之后 —— 同优先级靠后覆盖，
+   否则收尾时呼吸与逐字动画停不下来，白烧 GPU。 */
+.poem.done .pc{animation:none;color:var(--ink,#fff)}
+.poem.done::after{animation:none}
 
 /* 诗句占据画面中央时，愿望文字与星图连线都退到后面去。 */
 .wl-dim{opacity:.10;will-change:opacity}
 .web-dim{opacity:.22;will-change:opacity}
+
+/* ============ 愿望回显：祝福之后，把刚许下的那些愿望再飘一遍 ============ */
+.poem-recall{
+  position:fixed;left:50%;top:50%;z-index:15;
+  transform:translate(-50%,-50%);
+  width:min(90vw,470px);
+  text-align:center;pointer-events:none;
+  opacity:0;
+  transition:opacity .8s var(--e-out);
+}
+.poem-recall.show{opacity:1}
+.poem-recall .rhead{
+  margin-bottom:15px;
+  color:#ffe6a6;font-size:11px;line-height:1;letter-spacing:.3em;font-weight:600;
+  opacity:0;transform:translateY(10px);
+  transition:opacity .7s var(--e-out),transform .9s cubic-bezier(.16,1,.3,1);
+}
+.poem-recall.show .rhead{opacity:1;transform:none}
+.poem-recall .rc{
+  display:block;
+  font-size:16px;line-height:2.05;letter-spacing:.1em;
+  color:rgba(230,240,255,.95);
+  text-shadow:0 0 18px rgba(176,212,255,.5),0 2px 8px rgba(0,0,0,.8);
+  opacity:0;transform:translateY(15px) scale(.95);
+  transition:opacity .7s var(--e-out),transform .95s cubic-bezier(.16,1,.3,1);
+  transition-delay:var(--rd,0s);
+}
+.poem-recall.show .rc{opacity:1;transform:none}
+.poem-recall .rc::before{
+  content:'✦';margin-right:9px;font-size:9px;
+  color:rgba(255,222,150,.75);
+  text-shadow:0 0 12px rgba(255,208,112,.8);
+  vertical-align:middle;
+}
+@media (max-height:660px){
+  .poem-recall .rc{font-size:14px;line-height:1.9}
+}
 
 /* ============ 今日流星 · 寄语条 ============ */
 /* 放在输入框上方的空白带 → 不压标题、不压副标题、不压星图 */
@@ -564,6 +625,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 <body>
 <canvas id="sky"></canvas>
 <canvas id="fx"></canvas>
+<canvas id="fw"></canvas>
 
 <div class="title">
   <h1>流星雨许愿</h1>
@@ -649,17 +711,20 @@ const rgbaOf = (hex, a) => {
 
 const sky = document.getElementById('sky');
 const fxc = document.getElementById('fx');
+const fwc = document.getElementById('fw');
 const sctx = sky.getContext('2d');
 const fctx = fxc.getContext('2d', { alpha: true });
+const fwctx = fwc.getContext('2d', { alpha: true });
 
 let W = 0, H = 0, DPR = 1;
 function resize() {
   DPR = Math.min(2, window.devicePixelRatio || 1);
   W = window.innerWidth; H = window.innerHeight;
-  for (const c of [sky, fxc]) { c.width = W * DPR; c.height = H * DPR; }
-  // 规范：两个画布都必须设置 DPR 变换，否则绘制被压缩到左上 1/4 且清除不干净
+  for (const c of [sky, fxc, fwc]) { c.width = W * DPR; c.height = H * DPR; }
+  // 规范：每个画布都必须设置 DPR 变换，否则绘制被压缩到左上 1/4 且清除不干净
   sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  fwctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   buildStars();
   layoutWishNodes();
 }
@@ -2102,14 +2167,17 @@ function setMusic(on) {
 }
 /* ---------- 星图文案：愿望连成线后，送给观众的一段话 ---------- */
 const WISH_POEMS = [
-  // 星图圆满（8 个愿望）
-  '你的愿望\n星星都听见了\n祝你天天开心\n往后的日子\n会一点点好起来的',
+  // 星图圆满（8 个愿望）—— 节奏：听见 → 祝福 → 期许，最后两行轻轻收尾
+  '你的愿望\n星星都听见了\n祝你天天开心\n往后的日子\n会一点点好起来的\n愿你想要的\n都在慢慢靠近你',
   // 星图成形（4 个）
   '你许下的每一个愿望\n都值得被认真对待\n慢慢来，别着急\n好事正在路上',
   // 星图渐满（6 个）
   '谢谢你\n愿意把心事讲给星星听\n祝你天天开心\n明天也是好天气',
 ];
 let poemTimer = null, poemDoneTimer = null, poemRun = 0;
+// 愿望回显：祝福退场后，把刚许下的愿望再逐条飘一遍
+let recallEl = null, recallTimer = null;
+let poemSafeRect = null;   // 中央文字（诗句/回显）占用的矩形，烟花自动避让用
 // 预建诗句容器：别等第一次要显示时才创建元素 + 首次解析整套样式，
 // 那一下的样式计算与布局正好落在动画起步的瞬间，会明显"顿"一下。
 const poemEl = document.createElement('div');
@@ -2122,7 +2190,22 @@ function showPoem(text) {
   wishLayer.classList.add('wl-dim');
   fxc.classList.add('web-dim');
   poemActive = true;                         // 星空降频，主线程让给逐字动画
-  clearTimeout(poemTimer); clearTimeout(poemDoneTimer);
+  clearTimeout(poemTimer); clearTimeout(poemDoneTimer); clearTimeout(recallTimer);
+  if (recallEl) recallEl.classList.remove('show');
+
+  // 开场：三圈星轨从屏幕中心层层推开，同时来一发环形礼花 ——
+  // 在文字出现之前，先让「星图圆满」这件事被看见。
+  const cx0 = W / 2, cy0 = H / 2, big = Math.max(W, H);
+  rings.push({ x: cx0, y: cy0, t: 0, dur: 1.35, max: big * 0.52, w: 2.4, a: 0.5 });
+  rings.push({ x: cx0, y: cy0, t: 0, dur: 1.75, max: big * 0.74, w: 1.6, a: 0.32 });
+  rings.push({ x: cx0, y: cy0, t: 0, dur: 2.15, max: big * 0.95, w: 1.0, a: 0.2 });
+  burstFirework(cx0, H * 0.33, { n: 62, power: 1.15, ring: 1 });
+  // 持续庆祝：烟花 + 底部星尘一直陪到诗句退场
+  const nowS0 = performance.now() / 1000;
+  celebrationUntil = nowS0 + 13.2;
+  nextFwAt = nowS0 + 0.35;
+  fwBadSpot = 0;                             // 本轮演出的自检计数清零
+  fwSpots = [];
 
   // 重新搭建「星图圆满仪式」：小星点 → 星轨 → 仪式标题 → 逐行逐字祝福。
   // 与原先直接把五行字塞进容器不同，这一版动画有清晰的起、承、转、合。
@@ -2142,9 +2225,14 @@ function showPoem(text) {
   lines.className = 'poem-lines';
 
   let chars = 0;
-  text.split('\n').forEach((line, li) => {
+  const poemLines = text.split('\n');
+  // ⚠️ 强调行不能写死 li===2 —— 文案增删一行就会整体错位。
+  //    改成按内容找「祝你天天开心」，找不到再退回中间那行。
+  let keyIdx = poemLines.findIndex(l => l.indexOf('天天开心') >= 0);
+  if (keyIdx < 0) keyIdx = Math.min(2, poemLines.length - 1);
+  poemLines.forEach((line, li) => {
     const lineEl = document.createElement('span');
-    lineEl.className = 'pl' + (li === 2 ? ' key' : (li >= 3 ? ' tail' : ''));
+    lineEl.className = 'pl' + (li === keyIdx ? ' key' : (li > keyIdx ? ' tail' : ''));
     const lineDelay = 0.72 + li * 0.52;       // 每行相隔半秒，肉眼能清楚看出逐行出现
     lineEl.style.setProperty('--ld', lineDelay.toFixed(2) + 's');
     [...line].forEach((ch, i) => {
@@ -2164,18 +2252,100 @@ function showPoem(text) {
   // 双 requestAnimationFrame：让浏览器先真正画出 opacity:0 / scale(.84) 的初始帧，
   // 下一帧再加 show。比同一帧里强制回流更稳定，解决「像直接显示、看不到动画」的问题。
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (run === poemRun) el.classList.add('show');
+    if (run !== poemRun) return;
+    el.classList.add('show');
+    // 记下诗句占的矩形：自动烟花要避开它，别把主角糊住
+    setPoemSafeRect(el);
   }));
 
-  // 最后一行约 4 秒完全落定，再撤掉 transition；整个祝福停留够久让人看完。
-  poemDoneTimer = setTimeout(() => { if (run === poemRun) el.classList.add('done'); }, 4700);
+  // 七行文字约 5.9 秒才全部落定（最后一行 lineDelay≈3.84s + 字延时 + 1.5s 动画），
+  // 落定之后再撤掉 transition，避免长动画一直挂在主线程上。
+  poemDoneTimer = setTimeout(() => { if (run === poemRun) el.classList.add('done'); }, 6200);
+  // 祝福整块停留 13 秒：烟花、星尘与逐字动画都需要时间铺开。
   poemTimer = setTimeout(() => {
     if (run !== poemRun) return;
-    el.classList.remove('show');
-    wishLayer.classList.remove('wl-dim');    // 愿望文字与连线淡回来
-    fxc.classList.remove('web-dim');
-    poemActive = false;                      // 星空恢复全速
-  }, 9000);
+    dismissPoem(true);                       // true = 保留庆祝态，让烟花星尘陪着回显走完
+    const n2 = performance.now() / 1000;
+    celebrationUntil = n2 + 9.4;             // 续期覆盖回显全程（回显 8.2s）
+    nextFwAt = n2 + 0.5;
+    const r2 = poemRun;
+    // 祝福退场、画面安静下来之后，再把刚许下的愿望逐条飘一遍
+    setTimeout(() => { if (r2 === poemRun) showRecall(); }, 700);
+  }, 13000);
+}
+
+/* 收起祝福：诗句、回显、退后态一起复位。
+   keepCelebrate=true 时保留烟花/星尘窗口（回显阶段还要用），否则一并停掉。 */
+function dismissPoem(keepCelebrate) {
+  clearTimeout(poemTimer); clearTimeout(poemDoneTimer); clearTimeout(recallTimer);
+  poemRun++;
+  poemEl.classList.remove('show');
+  poemEl.classList.add('done');              // 停掉呼吸与逐字动画，省 GPU
+  if (recallEl) recallEl.classList.remove('show');
+  wishLayer.classList.remove('wl-dim');      // 愿望文字与连线淡回来
+  fxc.classList.remove('web-dim');
+  poemActive = false;                        // 星空恢复全速
+  poemSafeRect = null;                       // 文字已撤，烟花不必再绕
+  if (!keepCelebrate) { celebrationUntil = 0; nextFwAt = 0; }
+}
+
+/* 记录「正在中央的文字」所占矩形，供 pickBurstSpot() 避让。 */
+function setPoemSafeRect(el) {
+  if (!el || !el.classList.contains('show')) { poemSafeRect = null; return; }
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height) { poemSafeRect = null; return; }
+  poemSafeRect = { x: r.left, y: r.top, w: r.width, h: r.height };
+}
+
+/* 祝福之后：把刚许下的愿望逐条飘过屏幕中央。
+   只做 opacity/transform 过渡（走合成器），文字过长则截断，避免撑破竖屏。 */
+function showRecall() {
+  if (!wishes.length) return;
+  if (!recallEl) {
+    recallEl = document.createElement('div');
+    recallEl.className = 'poem-recall';
+    document.body.appendChild(recallEl);
+  }
+  const run = poemRun;
+  // 回显同样落在屏幕正中，而内容与星图上的愿望标签完全一样 ——
+  // 不让星图退后的话，两套一模一样的文字会糊成一片（实拍验证过）。
+  wishLayer.classList.add('wl-dim');
+  fxc.classList.add('web-dim');
+  recallEl.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'rhead';
+  head.textContent = '这些，星星都替你记下了';
+  recallEl.appendChild(head);
+  // ⚠️ wishes 是 unshift 前插（数组顺序 = [最新 … 最旧]），所以「取前 8 条再 reverse」
+  //    才是按许愿先后顺序念；这 8 条正好对应此刻星图上亮着的 8 颗星。
+  wishes.slice(0, MAX_NODES).reverse().forEach((w, i) => {
+    const d = document.createElement('div');
+    d.className = 'rc';
+    const txt = w.text.length > 22 ? w.text.slice(0, 22) + '…' : w.text;
+    d.textContent = txt;
+    d.style.setProperty('--rd', (0.3 + i * 0.4).toFixed(2) + 's');
+    recallEl.appendChild(d);
+  });
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (run !== poemRun) return;
+    recallEl.classList.add('show');
+    setPoemSafeRect(recallEl);               // 回显期间烟花同样避开这一列文字
+  }));
+  clearTimeout(recallTimer);
+  // 最后一条 0.3+7*0.4=3.1s 才起，再留约 5s 让人读完
+  recallTimer = setTimeout(() => {
+    if (run !== poemRun) return;
+    recallEl.classList.remove('show');
+    poemSafeRect = null;
+    // 演出结束：烟花与星尘不再补充，已在空中的自然飘完消散
+    celebrationUntil = 0; nextFwAt = 0;
+    // 等回显自己淡出（.8s）再让星图亮回来，避免两套文字在过渡途中短暂重叠
+    setTimeout(() => {
+      if (run !== poemRun) return;
+      wishLayer.classList.remove('wl-dim');
+      fxc.classList.remove('web-dim');
+    }, 800);
+  }, 8200);
 }
 
 /* ---------- 提交动效：输入框里的文字"飞"向夜空 ---------- */
@@ -2437,6 +2607,157 @@ function scheduleWishBurst(dt) {
 let flashes = [];
 let rings = [];
 let glows = [];
+
+/* ---------- 烟花 & 仪式星尘（第 8 个愿望的庆祝 + 随手点屏幕） ---------- */
+let fireworks = [];        // 飞行中的烟花粒子
+let fwCores = [];          // 爆发瞬间的亮核（很短命，负责「炸开」那一下）
+let poemDust = [];         // 仪式期间从屏幕下沿升起的星尘
+let poemDustAcc = 0;       // 星尘生成节拍器
+let celebrationUntil = 0;  // 持续放烟花的截止时刻（秒，绝对时间）
+let nextFwAt = 0;          // 下一发烟花的时刻
+let fwBadSpot = 0;         // 自检：自动烟花误落在中央文字上的次数（应为 0）
+let fwSpots = [];          // 自检：最近 60 个自动烟花的落点（验收脚本用来核对空档区）
+const FW_TINTS = [
+  [255, 212, 132],   // 暖金
+  [176, 204, 255],   // 冰蓝
+  [255, 158, 196],   // 樱粉
+  [152, 240, 204],   // 青绿
+  [203, 168, 255],   // 紫罗兰
+  [132, 222, 255],   // 亮天蓝
+];
+// 预渲染粒子精灵（每个色相一张）：绘制时只做 drawImage。
+// ⚠️ 不要改成「每颗粒子每帧 createRadialGradient」—— 60 颗 × 60fps = 每秒 3600 个渐变对象，手机必卡。
+const FW_SPRITES = FW_TINTS.map(c => {
+  const S = 64, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const rgb = c[0] + ',' + c[1] + ',' + c[2];
+  const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  // ⚠️ 白芯只占最里面一点点：白芯一大，几十颗叠加后整朵花就糊成一团白
+  //    （和流星配色同一个坑：用户要的是「彩」不是「白」）。
+  gr.addColorStop(0, 'rgba(255,255,255,.95)');
+  gr.addColorStop(.10, 'rgba(' + rgb + ',.92)');
+  gr.addColorStop(.34, 'rgba(' + rgb + ',.55)');
+  gr.addColorStop(1, 'rgba(' + rgb + ',0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, S, S);
+  return cv;
+});
+// 一次爆发：n 颗粒子从 (cx,cy) 四散。ring=1 时摆成规整圆环（更「烟花」，散点更像礼花）
+function burstFirework(cx, cy, opt) {
+  opt = opt || {};
+  const n = opt.n || 48;
+  const ti = opt.tint == null ? (Math.random() * FW_TINTS.length) | 0 : opt.tint % FW_TINTS.length;
+  const power = opt.power || 1;
+  const ring = !!opt.ring;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU + rand(-0.08, 0.08);
+    const spd = (ring ? 1 : Math.pow(Math.random(), 0.5)) * rand(70, 210) * power;
+    fireworks.push({
+      x: cx, y: cy,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd - (ring ? 0 : rand(10, 55)),
+      t: 0, dur: rand(0.7, 1.4),
+      r: rand(1.4, 2.8), ti, ph: rand(0, TAU),
+    });
+  }
+  flashes.push({ a: 0.07, t: 0, dur: 0.2 });
+  glows.push({ x: cx, y: cy, t: 0, dur: 0.5, r: 52 });
+  // 亮核画在顶层画布上 —— 光晕 glows 在 #fx 里，会被诗句柔光底吃掉，看不到「炸开」那一下
+  fwCores.push({ x: cx, y: cy, t: 0, dur: 0.44, r: 74 * power, ti });
+}
+function updateFireworks(dt) {
+  for (let i = fwCores.length - 1; i >= 0; i--) {
+    const c = fwCores[i];
+    c.t += dt;
+    if (c.t >= c.dur) fwCores.splice(i, 1);
+  }
+  for (let i = fireworks.length - 1; i >= 0; i--) {
+    const p = fireworks[i];
+    p.t += dt;
+    if (p.t >= p.dur) { fireworks.splice(i, 1); continue; }
+    p.vy += 96 * dt;                             // 重力
+    const damp = Math.max(0, 1 - 1.35 * dt);     // 空气阻力
+    p.vx *= damp; p.vy *= damp;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+}
+// ⚠️ 烟花画在 #fw（z-index 16）而不是 #fx —— 诗句的深色柔光底在 z-index 15，
+//    画在 #fx 里会被整块盖住（实拍截图确认过）。星尘同理。
+function drawFireworks() {
+  if (!fireworks.length && !fwCores.length) return;
+  fwctx.save();
+  fwctx.globalCompositeOperation = 'lighter';
+  // 亮核：先是一点刺眼的白，随即炸开成彩色光团
+  for (const c of fwCores) {
+    const k = c.t / c.dur;
+    const a = Math.pow(1 - k, 2.2);
+    const sz = c.r * (0.42 + k * 1.25);
+    fwctx.globalAlpha = a * 0.85;
+    fwctx.drawImage(FW_SPRITES[c.ti], c.x - sz / 2, c.y - sz / 2, sz, sz);
+  }
+  for (const p of fireworks) {
+    const k = p.t / p.dur;
+    const a = Math.pow(1 - k, 1.5);
+    const tw = 0.74 + 0.26 * Math.sin(p.t * 17 + p.ph);
+    const sz = p.r * (5.5 + 4 * a) * tw;
+    // 拖尾：沿速度反方向拉长一点，粒子才像「飞出去的火星」而不是一团雾
+    fwctx.globalAlpha = a * 0.55;
+    fwctx.strokeStyle = 'rgb(' + FW_TINTS[p.ti].join(',') + ')';
+    fwctx.lineWidth = Math.max(0.6, p.r * 0.8);
+    fwctx.beginPath();
+    fwctx.moveTo(p.x, p.y);
+    fwctx.lineTo(p.x - p.vx * 0.062, p.y - p.vy * 0.062);
+    fwctx.stroke();
+    fwctx.globalAlpha = a;
+    fwctx.drawImage(FW_SPRITES[p.ti], p.x - sz / 2, p.y - sz / 2, sz, sz);
+  }
+  fwctx.restore();
+  fwctx.globalAlpha = 1;
+}
+// 仪式星尘：细碎金粉从屏幕下沿缓缓升起，让诗句停留期间画面一直有生气
+function spawnPoemDust() {
+  poemDust.push({
+    x: rand(-20, W + 20), y: H + rand(0, 30),
+    vx: rand(-13, 13), vy: -rand(24, 62),
+    t: 0, dur: rand(2.8, 5.0),
+    r: rand(0.9, 2.2), ti: (Math.random() * 3) | 0, ph: rand(0, TAU),
+  });
+}
+function updatePoemDust(dt) {
+  // 只在庆祝窗口内持续补充；窗口结束后已有的自然飘完消散
+  if (performance.now() / 1000 < celebrationUntil) {
+    poemDustAcc += dt;
+    // 每 55ms 一颗 → 同时约 70 颗，密度刚好不糊
+    while (poemDustAcc >= 0.055) { poemDustAcc -= 0.055; spawnPoemDust(); }
+  } else {
+    poemDustAcc = 0;
+  }
+  for (let i = poemDust.length - 1; i >= 0; i--) {
+    const d = poemDust[i];
+    d.t += dt;
+    if (d.t >= d.dur) { poemDust.splice(i, 1); continue; }
+    d.x += (d.vx + Math.sin(d.t * 1.6 + d.ph) * 9) * dt;
+    d.y += d.vy * dt;
+    d.vy += 5 * dt;                              // 越飘越慢
+  }
+}
+function drawPoemDust() {
+  if (!poemDust.length) return;
+  fwctx.save();
+  fwctx.globalCompositeOperation = 'lighter';
+  for (const d of poemDust) {
+    const k = d.t / d.dur;
+    // 两头收、中间亮
+    const a = (k < 0.2 ? k / 0.2 : Math.pow(1 - (k - 0.2) / 0.8, 1.4)) * 0.85;
+    const tw = 0.6 + 0.4 * Math.sin(d.t * 3.4 + d.ph);
+    const sz = d.r * 11 * tw;
+    fwctx.globalAlpha = a;
+    fwctx.drawImage(FW_SPRITES[d.ti], d.x - sz / 2, d.y - sz / 2, sz, sz);
+  }
+  fwctx.restore();
+  fwctx.globalAlpha = 1;
+}
 function drawFxLayer(dt) {
   // 全屏闪光
   for (let i = flashes.length - 1; i >= 0; i--) {
@@ -2479,11 +2800,77 @@ function drawFxLayer(dt) {
     fctx.globalCompositeOperation = 'source-over';
   }
   // 许愿星尘 + 愿望环绕 + 文字轮廓 + 愿望星图
+  const nowS = performance.now() / 1000;
   updateStarDust(dt);
   drawStarDust();
   drawWishOutline();
   drawWishKeep(dt);
-  drawWishWeb(performance.now() / 1000, dt);
+  drawWishWeb(nowS, dt);
+}
+
+/* ---------- 庆祝层（#fw 顶层画布）：烟花 + 仪式星尘 ---------- */
+function pickBurstSpot() {
+  // 自动烟花只落在「空档区」：顶部 UI（标题 + 能量条）与中央文字块都要让开 ——
+  // 这两块压着用户需要读的信息，被烟花糊住很碍事（实拍截图里糊过能量条）。
+  // ⚠️ 顶部 UI 的绝对下沿要实时量：.title 是 fixed + top:72px，高度与视口高度无关，
+  //    写 H*0.26 这种比例值在手机上浪费空档、在桌面上又拦不住。
+  const pad = 16;
+  const tEl = document.querySelector('.title');
+  const tR = tEl ? tEl.getBoundingClientRect() : null;
+  const topLimit = (tR && tR.height ? tR.bottom : H * 0.14) + 18;
+  const botLimit = Math.min(H - 14, H * 0.86);      // 输入框之上
+  const r = poemSafeRect;
+  const y0 = r ? r.y - pad : H * 0.46;              // 中央文字上沿（无文字时用 0.46H 收口）
+  const y1 = r ? r.y + r.h + pad : y0;
+  const zones = [];
+  // ① 文字上方那条（顶栏之下 → 文字之上）。烟花本来就该在天上，给 2 倍权重。
+  if (y0 - topLimit > 30) zones.push({ x0: W * 0.06, y0: topLimit, x1: W * 0.94, y1: y0, w: 2 });
+  // ② 文字下方那条（文字之下 → 输入框之上）
+  if (botLimit - y1 > 30) zones.push({ x0: W * 0.06, y0: y1, x1: W * 0.94, y1: botLimit, w: 1 });
+  // ③ 文字左右两侧（只有宽屏才留得出空档；手机端诗句几乎满宽，自动跳过）
+  if (r) {
+    if (r.x - pad - W * 0.05 > 90) zones.push({ x0: W * 0.05, y0: topLimit, x1: r.x - pad, y1: H * 0.62, w: 1.4 });
+    if (W * 0.95 - (r.x + r.w + pad) > 90) zones.push({ x0: r.x + r.w + pad, y0: topLimit, x1: W * 0.95, y1: H * 0.62, w: 1.4 });
+  }
+  if (!zones.length) zones.push({ x0: W * 0.06, y0: topLimit, x1: W * 0.94, y1: botLimit, w: 1 });
+  // 按「面积 × 权重」随机挑一条空档，避免每发都挤在同一处
+  let total = 0;
+  for (const z of zones) total += (z.x1 - z.x0) * (z.y1 - z.y0) * z.w;
+  let k = Math.random() * total, z = zones[zones.length - 1];
+  for (const q of zones) { k -= (q.x1 - q.x0) * (q.y1 - q.y0) * q.w; if (k <= 0) { z = q; break; } }
+  return [clamp(rand(z.x0, z.x1), 12, W - 12), clamp(rand(z.y0, z.y1), 10, H - 10)];
+}
+/* 有面板/弹层打开时，烟花不该画在它们上面（#fw 的 z-index 高于 sheet / 抽屉 / 保存预览）。 */
+let _panelEls = null;
+function panelOpen() {
+  if (!_panelEls) {
+    _panelEls = ['sheet', 'drawer', 'mask', 'savemask', 'wxmask']
+      .map(id => document.getElementById(id)).filter(Boolean);
+  }
+  for (const el of _panelEls) if (el.classList.contains('show')) return true;
+  return false;
+}
+function drawCelebrationLayer(dt) {
+  const blocked = panelOpen();
+  // 庆祝窗口内：随机位置、随机色相持续放烟花（绝对时间判断，降频也不会漏拍）
+  const nowS = performance.now() / 1000;
+  if (!blocked && nowS < celebrationUntil && nowS >= nextFwAt) {
+    nextFwAt = nowS + rand(0.26, 0.5);
+    const sp = pickBurstSpot();
+    const r = poemSafeRect;
+    // 自检计数：自动烟花绝不该落在中央文字上（验收脚本断言它为 0）
+    if (r && sp[0] > r.x && sp[0] < r.x + r.w && sp[1] > r.y && sp[1] < r.y + r.h) fwBadSpot++;
+    fwSpots.push([Math.round(sp[0]), Math.round(sp[1])]);
+    if (fwSpots.length > 60) fwSpots.shift();
+    burstFirework(sp[0], sp[1], { n: 46, power: 1.05 });
+  }
+  // 粒子照常推进寿命，只是面板打开期间不画 —— 否则关掉面板会看到一堆「冻住」的烟花突然动起来
+  updateFireworks(dt);
+  updatePoemDust(dt);
+  if (blocked) return false;
+  const has = fireworks.length || fwCores.length || poemDust.length;
+  if (has) { drawFireworks(); drawPoemDust(); }
+  return has;
 }
 
 /* ---------- Toast ---------- */
@@ -2718,6 +3105,8 @@ function timeAgo(ts) {
 function submitWish() {
   const txt = input.value.trim();
   if (!txt || submittingWish) return;
+  // 祝福 / 回显还占着屏幕中央时，用户又写下新愿望 → 立刻让路，别让仪式挡住操作
+  if (poemActive || (recallEl && recallEl.classList.contains('show'))) dismissPoem(false);
   submittingWish = true;
   setTimeout(() => { submittingWish = false; }, 220);
   const blessing = meteorBlessing;
@@ -3169,9 +3558,9 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   wishLayer.classList.remove('wl-dim');
   fxc.classList.remove('web-dim');
   // 诗句若正停在屏幕中央，一并收起并恢复星空全速绘制
-  clearTimeout(poemTimer); clearTimeout(poemDoneTimer); poemRun++;
-  poemEl.classList.remove('show', 'done');
-  poemActive = false;
+  dismissPoem(false);
+  // 烟花与星尘也一并清空，别留在清空后的星空里
+  fireworks = []; fwCores = []; poemDust = []; poemDustAcc = 0;
   wishKeep = [];
   try { localStorage.removeItem(LS_WISH); } catch (e) {}
   renderWishes();
@@ -3184,6 +3573,17 @@ document.getElementById('resetBtn').addEventListener('click', () => {
   sheet.classList.remove('show');
 });
 
+/* ---------- 随手点夜空：就地炸一朵烟花（任何时刻都能玩） ---------- */
+let lastTapFw = 0;
+window.addEventListener('pointerdown', (e) => {
+  // 面板、按钮、输入框上的点击交给它们自己处理，别在按钮上炸花
+  if (e.target.closest && e.target.closest('button,input,textarea,a,label,#sheet,#drawer,#mask,#wxmask,#savemask,#toast,.poem,.poem-recall')) return;
+  const now = performance.now();
+  if (now - lastTapFw < 130) return;      // 限流：连点也不至于糊成一片
+  lastTapFw = now;
+  burstFirework(e.clientX, e.clientY, { n: 34, power: 0.85 });
+}, { passive: true });
+
 /* ============================================================
    主循环
    ============================================================ */
@@ -3191,6 +3591,9 @@ let lastT = performance.now();
 // 诗句占据屏幕中央期间 → 星空降频绘制，把主线程让给逐字动画
 let poemActive = false;
 let poemSkip = false;
+// #fw 只在真的有内容时才清屏：平时（没有烟花/星尘）省掉一次全屏 clearRect，
+// 手机 DPR=2 下那是 130 万像素的无谓填充。
+let fwDirty = false;
 function frame(now) {
   const t = now / 1000;
   // 诗句出场与停留期间，星空每两帧才画一次（约 30fps）。此时星空已被压暗到 0.3、
@@ -3226,13 +3629,16 @@ function frame(now) {
 
   sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  fwctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   sctx.clearRect(0, 0, W, H);
   fctx.clearRect(0, 0, W, H);
+  if (fwDirty) fwctx.clearRect(0, 0, W, H);
 
   drawSky(t);
   drawNovas();
   drawMeteors();
   drawFxLayer(dt);
+  fwDirty = drawCelebrationLayer(dt);   // 烟花 + 星尘：顶层画布，压在诗句柔光底之上
   updateWishLabels3d(t);
 
   requestAnimationFrame(frame);
