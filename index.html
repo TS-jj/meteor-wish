@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="app-build" content="20261016-celebrate">
+<meta name="app-build" content="20261016-rayfire">
 <link rel="icon" href="data:,">
 <title>流星雨许愿</title>
 <style>
@@ -2193,13 +2193,11 @@ function showPoem(text) {
   clearTimeout(poemTimer); clearTimeout(poemDoneTimer); clearTimeout(recallTimer);
   if (recallEl) recallEl.classList.remove('show');
 
-  // 开场：三圈星轨从屏幕中心层层推开，同时来一发环形礼花 ——
-  // 在文字出现之前，先让「星图圆满」这件事被看见。
+  // 开场：三圈星轨从屏幕中心层层推开 —— 在文字出现之前，先让「星图圆满」这件事被看见。
   const cx0 = W / 2, cy0 = H / 2, big = Math.max(W, H);
   rings.push({ x: cx0, y: cy0, t: 0, dur: 1.35, max: big * 0.52, w: 2.4, a: 0.5 });
   rings.push({ x: cx0, y: cy0, t: 0, dur: 1.75, max: big * 0.74, w: 1.6, a: 0.32 });
   rings.push({ x: cx0, y: cy0, t: 0, dur: 2.15, max: big * 0.95, w: 1.0, a: 0.2 });
-  burstFirework(cx0, H * 0.33, { n: 62, power: 1.15, ring: 1 });
   // 持续庆祝：烟花 + 底部星尘一直陪到诗句退场
   const nowS0 = performance.now() / 1000;
   celebrationUntil = nowS0 + 13.2;
@@ -2249,13 +2247,21 @@ function showPoem(text) {
   shell.append(kicker, lines);
   el.appendChild(shell);
 
+  // ⚠️ 立刻同步量一次文字区（offsetTop/offsetHeight 是布局值，不受入场 transform 影响），
+  //    这样开场那几发烟花就能用 pickBurstSpot 选到安全位置 ——
+  //    否则只能按「屏幕中央偏上」硬写，在手机上正好糊在诗句上（实测踩过）。
+  setPoemSafeRect(el);
+  const openWant = Math.min(W, H) * 0.36;
+  spawnAutoBurst(openWant, true);              // 立刻炸一发大的
+  spawnAutoBurst(openWant * 0.8);              // 再打两发小的上天
+  spawnAutoBurst(openWant * 0.8);
+
   // 双 requestAnimationFrame：让浏览器先真正画出 opacity:0 / scale(.84) 的初始帧，
   // 下一帧再加 show。比同一帧里强制回流更稳定，解决「像直接显示、看不到动画」的问题。
   requestAnimationFrame(() => requestAnimationFrame(() => {
     if (run !== poemRun) return;
     el.classList.add('show');
-    // 记下诗句占的矩形：自动烟花要避开它，别把主角糊住
-    setPoemSafeRect(el);
+    setPoemSafeRect(el);                     // 布局稳定后再量一次，作为后续烟花的避让依据
   }));
 
   // 七行文字约 5.9 秒才全部落定（最后一行 lineDelay≈3.84s + 字延时 + 1.5s 动画），
@@ -2289,12 +2295,24 @@ function dismissPoem(keepCelebrate) {
   if (!keepCelebrate) { celebrationUntil = 0; nextFwAt = 0; }
 }
 
-/* 记录「正在中央的文字」所占矩形，供 pickBurstSpot() 避让。 */
+/* 记录「正在中央的文字」所占矩形，供 pickBurstSpot() 避让。
+   ⚠️ 用 .poem-shell 的**布局值**（offsetTop/offsetHeight），不要用 .poem 的 getBoundingClientRect：
+   .poem 带 58/62px 的内边距，用元素 rect 会把文字区上下各多算 60px ——
+   而手机上「诗句上方 / 下方」那两条空档带本来就只有 40~50px 高，白扔掉就一条都不剩了。
+   offsetTop/offsetHeight 不受入场 transform（translateY+scale）影响，量的就是最终布局位置。 */
 function setPoemSafeRect(el) {
-  if (!el || !el.classList.contains('show')) { poemSafeRect = null; return; }
-  const r = el.getBoundingClientRect();
-  if (!r.width || !r.height) { poemSafeRect = null; return; }
-  poemSafeRect = { x: r.left, y: r.top, w: r.width, h: r.height };
+  if (!el) { poemSafeRect = null; return; }
+  const pr = el.getBoundingClientRect();
+  if (!pr.width || !pr.height) { poemSafeRect = null; return; }
+  const sh = el.firstElementChild;
+  if (sh && sh.classList.contains('poem-shell')) {
+    poemSafeRect = {
+      x: pr.left + sh.offsetLeft, y: pr.top + sh.offsetTop,
+      w: sh.offsetWidth, h: sh.offsetHeight,
+    };
+  } else {
+    poemSafeRect = { x: pr.left, y: pr.top, w: pr.width, h: pr.height };
+  }
 }
 
 /* 祝福之后：把刚许下的愿望逐条飘过屏幕中央。
@@ -2608,109 +2626,229 @@ let flashes = [];
 let rings = [];
 let glows = [];
 
-/* ---------- 烟花 & 仪式星尘（第 8 个愿望的庆祝 + 随手点屏幕） ---------- */
-let fireworks = [];        // 飞行中的烟花粒子
-let fwCores = [];          // 爆发瞬间的亮核（很短命，负责「炸开」那一下）
+/* ---------- 烟花 & 仪式星尘（第 8 个愿望的庆祝 + 随手点屏幕） ----------
+   真实感的关键：一朵烟花 = 一张「预渲染的射线花」贴图，而不是一堆散点。
+   对照实拍照片：几十条细长射线从白热核心放射而出、越往外越细越淡、末端收成亮点，
+   整朵只用一个主色（中心白热），外面还罩一层被照亮的薄雾。
+   ⚠️ 不要退回「每颗粒子一个径向渐变精灵、四散飞开」的老做法 —— 那样看着像一团发光的雾，很假。 */
+let fireworks = [];        // 空中的花朵（每项 = 一整朵，不是一颗）
+let fwCores = [];          // 爆发瞬间的白热核（很短命，负责「炸开」那一下）
+let fwShells = [];         // 上升弹：从屏幕下沿升到爆点再炸开（真实烟花都有这一段）
+let fwSmoke = [];          // 被烟花照亮的余晖薄雾（长命，缓慢扩散）
 let poemDust = [];         // 仪式期间从屏幕下沿升起的星尘
 let poemDustAcc = 0;       // 星尘生成节拍器
 let celebrationUntil = 0;  // 持续放烟花的截止时刻（秒，绝对时间）
 let nextFwAt = 0;          // 下一发烟花的时刻
 let fwBadSpot = 0;         // 自检：自动烟花误落在中央文字上的次数（应为 0）
 let fwSpots = [];          // 自检：最近 60 个自动烟花的落点（验收脚本用来核对空档区）
+
+// 一朵花一个主色系（真实烟花极少在一朵里混多种颜色），中心一律白热。
+// core = 近白的核心与射线内段，mid = 射线中段，tip = 射线末端与尾色。
 const FW_TINTS = [
-  [255, 212, 132],   // 暖金
-  [176, 204, 255],   // 冰蓝
-  [255, 158, 196],   // 樱粉
-  [152, 240, 204],   // 青绿
-  [203, 168, 255],   // 紫罗兰
-  [132, 222, 255],   // 亮天蓝
+  { core: '255,252,242', mid: '255,228,170', tip: '255,166,84' },   // 暖金
+  { core: '255,250,248', mid: '255,172,198', tip: '255,84,136' },   // 玫红
+  { core: '255,252,252', mid: '255,198,228', tip: '255,118,196' },  // 樱粉
+  { core: '250,253,255', mid: '190,220,255', tip: '116,166,255' },  // 冰蓝
+  { core: '250,255,255', mid: '174,244,255', tip: '92,220,255' },   // 电光青
+  { core: '253,250,255', mid: '214,186,255', tip: '164,122,255' },  // 紫罗兰
 ];
-// 预渲染粒子精灵（每个色相一张）：绘制时只做 drawImage。
-// ⚠️ 不要改成「每颗粒子每帧 createRadialGradient」—— 60 颗 × 60fps = 每秒 3600 个渐变对象，手机必卡。
-const FW_SPRITES = FW_TINTS.map(c => {
+// 可复现的伪随机：同一 seed 每次生成同一朵花（不要用 Math.random 生成模板，
+// 否则每张都长一样或每次刷新都变，验收时也没法对照）。
+function fwRnd(seed) {
+  let s = (seed >>> 0) || 1;
+  return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+const FW_SZ = 512;                        // 模板边长（中心 = FW_SZ/2）
+const FW_R = FW_SZ / 2 * 0.95;            // 射线最大半径（模板像素）
+
+// 画一条射线：分 8 段模拟「内白 → 中彩 → 末端暗」的渐变，越靠外越细越淡。
+// 用分段纯色而不是 createLinearGradient —— 每段很短，肉眼看不出区别，但省掉 60 个渐变对象。
+// ⚠️ 两个容易搞反的地方：
+//   ① 段的位置分布必须用 pow(1.5)（**指数 > 1**）：第 0 段只覆盖半径的 4%，白热才不会糊一大团；
+//      写成 pow(0.72) 会让第 0 段占掉 27% 半径 —— 整朵花看着就是一团白光。
+//   ② 颜色/线宽/亮度一律按**该段的实际半径比例**分配，不要按段索引 —— 否则白热区宽度跟着段数漂。
+function fwDrawRay(g, cx, cy, r, tint) {
+  const SEG = 8;
+  const dx = Math.cos(r.a), dy = Math.sin(r.a);
+  const bx = -dy * r.bend, by = dx * r.bend;      // 极轻微弯曲：射线不是绝对直线
+  const L = r.len;
+  const at = p => [cx + dx * L * p + bx * L * p * p, cy + dy * L * p + by * L * p * p];
+  for (let i = 0; i < SEG; i++) {
+    const p0 = Math.pow(i / SEG, 1.5), p1 = Math.pow((i + 1) / SEG, 1.5);
+    const pr = (p0 + p1) / 2;                     // 该段的半径比例（0 = 核心，1 = 末端）
+    const col = pr < 0.13 ? tint.core : (pr < 0.46 ? tint.mid : tint.tip);
+    const al = 0.98 - 0.22 * pr;                  // 整条射线都在燃烧，末端只略暗
+    g.strokeStyle = 'rgba(' + col + ',' + al.toFixed(3) + ')';
+    g.lineWidth = Math.max(0.5, r.w * (1.35 - 0.95 * pr));
+    const a = at(p0), b = at(p1);
+    g.beginPath();
+    g.moveTo(a[0], a[1]);
+    g.lineTo(b[0], b[1]);
+    g.stroke();
+  }
+  // 末端亮点 + 小光晕：真实烟花每条射线的头部都在燃烧，这一点是「像不像」的关键
+  const ex = cx + dx * L + bx * L * L, ey = cy + dy * L + by * L * L;
+  const eg = g.createRadialGradient(ex, ey, 0, ex, ey, 13);
+  eg.addColorStop(0, 'rgba(' + tint.core + ',.95)');
+  eg.addColorStop(.32, 'rgba(' + tint.mid + ',.42)');
+  eg.addColorStop(1, 'rgba(' + tint.tip + ',0)');
+  g.fillStyle = eg;
+  g.fillRect(ex - 13, ey - 13, 26, 26);
+  g.fillStyle = 'rgba(' + tint.core + ',.98)';
+  g.beginPath();
+  g.arc(ex, ey, 2.6, 0, TAU);
+  g.fill();
+}
+// 生成一张「菊花型」烟花贴图：12 瓣 × 5 条 = 60 条射线，瓣间长度交错 → 天然的内外两层。
+function fwMakeShell(tint, seed) {
+  const S = FW_SZ, C = S / 2;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  g.globalCompositeOperation = 'lighter';
+  const rnd = fwRnd(seed);
+  // ① 底层柔光：被烟花照亮的一团薄雾，让整朵花有「实体感」而不是一堆飘着的线。
+  //    ⚠️ 这一层要压得很低：它一大，中心又会糊成白团，射线就看不见了。
+  const haze = g.createRadialGradient(C, C, 0, C, C, FW_R * 0.8);
+  haze.addColorStop(0, 'rgba(' + tint.mid + ',.10)');
+  haze.addColorStop(.5, 'rgba(' + tint.tip + ',.035)');
+  haze.addColorStop(1, 'rgba(' + tint.tip + ',0)');
+  g.fillStyle = haze;
+  g.fillRect(0, 0, S, S);
+  // ② 射线：16 瓣 × 7 条 = 112 条。参考图里一朵花的射线密到「几乎填满圆面」，
+  //    条数少一半就会看出明显的空隙，像「刺球」而不像烟花。
+  //    瓣长随机区间拉大 → 外缘不规则，不是规规矩矩的圆。
+  const PETALS = 16, PER = 7;
+  for (let p = 0; p < PETALS; p++) {
+    const base = p / PETALS * TAU + (rnd() - .5) * 0.05;
+    const plen = FW_R * (0.72 + rnd() * 0.28);
+    for (let k = 0; k < PER; k++) {
+      fwDrawRay(g, C, C, {
+        a: base + (k / (PER - 1) - 0.5) * (TAU / PETALS) * 0.9,
+        // 长短差拉大：参考图里同一朵花里射线的长度层次很明显，均匀长度看着像「刺球」
+        len: plen * (0.55 + rnd() * 0.45),
+        w: 0.72 + rnd() * 0.5,                       // 条数多了就相应调细，整体亮度持平
+        bend: (rnd() - .5) * 0.06,
+      }, tint);
+    }
+  }
+  // ③ 中心白热核：只占半径的 14%，再大就把射线吃掉了
+  const cr = FW_R * 0.14;
+  const core = g.createRadialGradient(C, C, 0, C, C, cr);
+  core.addColorStop(0, 'rgba(255,255,255,.94)');
+  core.addColorStop(.22, 'rgba(' + tint.core + ',.52)');
+  core.addColorStop(.55, 'rgba(' + tint.mid + ',.13)');
+  core.addColorStop(1, 'rgba(' + tint.mid + ',0)');
+  g.fillStyle = core;
+  g.fillRect(C - cr, C - cr, cr * 2, cr * 2);
+  return cv;
+}
+// 6 张花朵模板（一色系一张）；每朵再随机旋转 + 不同缩放，观感就不会重复
+const FW_SHELLS = FW_TINTS.map((t, i) => fwMakeShell(t, 1013 + i * 7919));
+// 小光点精灵（星尘 / 烟云 / 上升弹头共用）
+const FW_DOTS = FW_TINTS.map(t => {
   const S = 64, cv = document.createElement('canvas');
   cv.width = cv.height = S;
   const g = cv.getContext('2d');
-  const rgb = c[0] + ',' + c[1] + ',' + c[2];
   const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-  // ⚠️ 白芯只占最里面一点点：白芯一大，几十颗叠加后整朵花就糊成一团白
-  //    （和流星配色同一个坑：用户要的是「彩」不是「白」）。
-  gr.addColorStop(0, 'rgba(255,255,255,.95)');
-  gr.addColorStop(.10, 'rgba(' + rgb + ',.92)');
-  gr.addColorStop(.34, 'rgba(' + rgb + ',.55)');
-  gr.addColorStop(1, 'rgba(' + rgb + ',0)');
+  gr.addColorStop(0, 'rgba(255,255,255,.96)');
+  gr.addColorStop(.14, 'rgba(' + t.mid + ',.80)');
+  gr.addColorStop(.44, 'rgba(' + t.tip + ',.34)');
+  gr.addColorStop(1, 'rgba(' + t.tip + ',0)');
   g.fillStyle = gr;
   g.fillRect(0, 0, S, S);
   return cv;
 });
-// 一次爆发：n 颗粒子从 (cx,cy) 四散。ring=1 时摆成规整圆环（更「烟花」，散点更像礼花）
+// 爆开一朵：只推入一个「花朵」对象，绘制时整张模板一次 drawImage。
 function burstFirework(cx, cy, opt) {
   opt = opt || {};
-  const n = opt.n || 48;
   const ti = opt.tint == null ? (Math.random() * FW_TINTS.length) | 0 : opt.tint % FW_TINTS.length;
-  const power = opt.power || 1;
-  const ring = !!opt.ring;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * TAU + rand(-0.08, 0.08);
-    const spd = (ring ? 1 : Math.pow(Math.random(), 0.5)) * rand(70, 210) * power;
-    fireworks.push({
-      x: cx, y: cy,
-      vx: Math.cos(a) * spd,
-      vy: Math.sin(a) * spd - (ring ? 0 : rand(10, 55)),
-      t: 0, dur: rand(0.7, 1.4),
-      r: rand(1.4, 2.8), ti, ph: rand(0, TAU),
-    });
-  }
-  flashes.push({ a: 0.07, t: 0, dur: 0.2 });
-  glows.push({ x: cx, y: cy, t: 0, dur: 0.5, r: 52 });
-  // 亮核画在顶层画布上 —— 光晕 glows 在 #fx 里，会被诗句柔光底吃掉，看不到「炸开」那一下
-  fwCores.push({ x: cx, y: cy, t: 0, dur: 0.44, r: 74 * power, ti });
+  const base = Math.min(W, H) * (opt.size || 0.30);      // 射线末端半径（屏幕 px）
+  const dur = opt.dur || rand(2.1, 2.9);
+  fireworks.push({
+    x: cx, oy: cy, t: 0, dur, ti,
+    rot: rand(0, TAU),                                   // 每朵姿态不同，避免看着像复制粘贴
+    s: Math.min(1.25, base / FW_R),                      // 模板缩放（再大就明显发糊）
+    fall: rand(15, 28),                                  // 整朵下坠加速度
+  });
+  flashes.push({ a: 0.06, t: 0, dur: 0.22 });
+  fwCores.push({ x: cx, y: cy, t: 0, dur: 0.38, r: base * 0.9, ti });
+  fwSmoke.push({ x: cx, y: cy, t: 0, dur: dur + 1.0, r: base * 1.0, ti });
+}
+// 发射一颗上升弹：从屏幕下沿升到 (tx,ty) 再炸开 —— 真实烟花都有这一段，
+// 也让「自动烟花」有了先后节奏，而不是凭空出现在半空中。
+function launchShell(tx, ty, opt) {
+  opt = opt || {};
+  const ti = opt.tint == null ? (Math.random() * FW_TINTS.length) | 0 : opt.tint % FW_TINTS.length;
+  fwShells.push({
+    x0: clamp(tx + rand(-W * 0.05, W * 0.05), 24, W - 24), y0: H + 12,
+    tx, ty, t: 0, dur: rand(0.55, 0.85), ti,
+    size: opt.size || 0.30,
+  });
 }
 function updateFireworks(dt) {
   for (let i = fwCores.length - 1; i >= 0; i--) {
-    const c = fwCores[i];
-    c.t += dt;
-    if (c.t >= c.dur) fwCores.splice(i, 1);
+    const c = fwCores[i]; c.t += dt; if (c.t >= c.dur) fwCores.splice(i, 1);
+  }
+  for (let i = fwSmoke.length - 1; i >= 0; i--) {
+    const m = fwSmoke[i]; m.t += dt; if (m.t >= m.dur) fwSmoke.splice(i, 1);
   }
   for (let i = fireworks.length - 1; i >= 0; i--) {
-    const p = fireworks[i];
-    p.t += dt;
-    if (p.t >= p.dur) { fireworks.splice(i, 1); continue; }
-    p.vy += 96 * dt;                             // 重力
-    const damp = Math.max(0, 1 - 1.35 * dt);     // 空气阻力
-    p.vx *= damp; p.vy *= damp;
-    p.x += p.vx * dt; p.y += p.vy * dt;
+    const f = fireworks[i]; f.t += dt; if (f.t >= f.dur) fireworks.splice(i, 1);
+  }
+  for (let i = fwShells.length - 1; i >= 0; i--) {
+    const s = fwShells[i]; s.t += dt;
+    if (s.t >= s.dur) { burstFirework(s.tx, s.ty, { tint: s.ti, size: s.size }); fwShells.splice(i, 1); }
   }
 }
 // ⚠️ 烟花画在 #fw（z-index 16）而不是 #fx —— 诗句的深色柔光底在 z-index 15，
 //    画在 #fx 里会被整块盖住（实拍截图确认过）。星尘同理。
 function drawFireworks() {
-  if (!fireworks.length && !fwCores.length) return;
   fwctx.save();
   fwctx.globalCompositeOperation = 'lighter';
-  // 亮核：先是一点刺眼的白，随即炸开成彩色光团
+  // ① 烟云（最底层、最长命）：被烟花照亮的一团余晖，缓慢扩散消散
+  for (const m of fwSmoke) {
+    const k = m.t / m.dur;
+    const sz = m.r * (1.15 + k * 1.7) * 2;
+    fwctx.globalAlpha = Math.pow(1 - k, 1.6) * 0.30;
+    fwctx.drawImage(FW_DOTS[m.ti], m.x - sz / 2, m.y - sz / 2, sz, sz);
+  }
+  // ② 上升弹：一条近白尾迹 + 头部亮点
+  for (const s of fwShells) {
+    const k = Math.min(1, s.t / s.dur);
+    const e = 1 - Math.pow(1 - k, 2.2);                   // 先快后慢，到顶点几乎停住
+    const x = s.x0 + (s.tx - s.x0) * e, y = s.y0 + (s.ty - s.y0) * e;
+    const e0 = Math.max(0, e - 0.13);
+    fwctx.globalAlpha = 0.55;
+    fwctx.strokeStyle = 'rgba(' + FW_TINTS[s.ti].core + ',.9)';
+    fwctx.lineWidth = 1.7;
+    fwctx.beginPath();
+    fwctx.moveTo(s.x0 + (s.tx - s.x0) * e0, s.y0 + (s.ty - s.y0) * e0);
+    fwctx.lineTo(x, y);
+    fwctx.stroke();
+    fwctx.globalAlpha = 0.95;
+    fwctx.drawImage(FW_DOTS[s.ti], x - 10, y - 10, 20, 20);
+  }
+  // ③ 爆发白热核：很短，负责「炸开」那一下的刺眼感
   for (const c of fwCores) {
     const k = c.t / c.dur;
-    const a = Math.pow(1 - k, 2.2);
-    const sz = c.r * (0.42 + k * 1.25);
-    fwctx.globalAlpha = a * 0.85;
-    fwctx.drawImage(FW_SPRITES[c.ti], c.x - sz / 2, c.y - sz / 2, sz, sz);
+    const sz = c.r * (0.5 + k * 1.5) * 2;
+    fwctx.globalAlpha = Math.pow(1 - k, 2.2) * 0.9;
+    fwctx.drawImage(FW_DOTS[c.ti], c.x - sz / 2, c.y - sz / 2, sz, sz);
   }
-  for (const p of fireworks) {
-    const k = p.t / p.dur;
-    const a = Math.pow(1 - k, 1.5);
-    const tw = 0.74 + 0.26 * Math.sin(p.t * 17 + p.ph);
-    const sz = p.r * (5.5 + 4 * a) * tw;
-    // 拖尾：沿速度反方向拉长一点，粒子才像「飞出去的火星」而不是一团雾
-    fwctx.globalAlpha = a * 0.55;
-    fwctx.strokeStyle = 'rgb(' + FW_TINTS[p.ti].join(',') + ')';
-    fwctx.lineWidth = Math.max(0.6, p.r * 0.8);
-    fwctx.beginPath();
-    fwctx.moveTo(p.x, p.y);
-    fwctx.lineTo(p.x - p.vx * 0.062, p.y - p.vy * 0.062);
-    fwctx.stroke();
+  // ④ 花朵本体：预渲染模板一次 drawImage —— 缩放 = 射线伸出，旋转 = 每朵姿态不同
+  for (const f of fireworks) {
+    const k = f.t / f.dur;
+    const grow = 1 - Math.exp(-13 * f.t);                 // 约 0.22s 内几乎完全伸出
+    const sc = f.s * grow * (1 + 0.055 * k);
+    const a = Math.min(1, f.t / 0.05) * (k < 0.55 ? 1 : Math.pow(1 - (k - 0.55) / 0.45, 1.5));
     fwctx.globalAlpha = a;
-    fwctx.drawImage(FW_SPRITES[p.ti], p.x - sz / 2, p.y - sz / 2, sz, sz);
+    fwctx.save();
+    fwctx.translate(f.x, f.oy + 0.5 * f.fall * f.t * f.t); // 整朵缓慢下坠
+    fwctx.rotate(f.rot);
+    fwctx.scale(sc, sc);
+    fwctx.drawImage(FW_SHELLS[f.ti], -FW_SZ / 2, -FW_SZ / 2);
+    fwctx.restore();
   }
   fwctx.restore();
   fwctx.globalAlpha = 1;
@@ -2753,7 +2891,7 @@ function drawPoemDust() {
     const tw = 0.6 + 0.4 * Math.sin(d.t * 3.4 + d.ph);
     const sz = d.r * 11 * tw;
     fwctx.globalAlpha = a;
-    fwctx.drawImage(FW_SPRITES[d.ti], d.x - sz / 2, d.y - sz / 2, sz, sz);
+    fwctx.drawImage(FW_DOTS[d.ti], d.x - sz / 2, d.y - sz / 2, sz, sz);
   }
   fwctx.restore();
   fwctx.globalAlpha = 1;
@@ -2809,36 +2947,65 @@ function drawFxLayer(dt) {
 }
 
 /* ---------- 庆祝层（#fw 顶层画布）：烟花 + 仪式星尘 ---------- */
-function pickBurstSpot() {
-  // 自动烟花只落在「空档区」：顶部 UI（标题 + 能量条）与中央文字块都要让开 ——
-  // 这两块压着用户需要读的信息，被烟花糊住很碍事（实拍截图里糊过能量条）。
-  // ⚠️ 顶部 UI 的绝对下沿要实时量：.title 是 fixed + top:72px，高度与视口高度无关，
-  //    写 H*0.26 这种比例值在手机上浪费空档、在桌面上又拦不住。
-  const pad = 16;
+// 最亮的白热核占花朵半径的比例。花心只要离文字/UI 超过 K*rad，最亮那团就压不到字上。
+const FW_CORE_K = 0.25;
+/* 把「花心可以放的位置」算成若干条空档带。每条带都已经按「核不压字」内缩过。
+   ⚠️ 三条带分别是「文字上方 / 下方 / 左右」，用的是**实测**几何：
+   - 顶部 UI 下沿实时量 .title（fixed + top:72px，高度与视口高度无关，写 H*0.26 会两头不讨好）
+   - 中央文字块用 poemSafeRect（.poem-shell 的布局值，不含 58/62px 内边距）
+   ⚠️ 窄屏（320×568）上「文字下方」这条带本来就只有 30~45px 厚，所以阈值必须放得很松（8px），
+   否则会退回「整屏兜底」把烟花糊到诗句上 —— 实拍验收里就是这么失败的。 */
+function burstZones(rad) {
+  const cl = 12 + FW_CORE_K * rad;
   const tEl = document.querySelector('.title');
   const tR = tEl ? tEl.getBoundingClientRect() : null;
-  const topLimit = (tR && tR.height ? tR.bottom : H * 0.14) + 18;
-  const botLimit = Math.min(H - 14, H * 0.86);      // 输入框之上
+  const top = (tR && tR.height ? tR.bottom : H * 0.14) + cl;
+  const bot = Math.min(H - 14, H * 0.87) - FW_CORE_K * rad;
   const r = poemSafeRect;
-  const y0 = r ? r.y - pad : H * 0.46;              // 中央文字上沿（无文字时用 0.46H 收口）
-  const y1 = r ? r.y + r.h + pad : y0;
-  const zones = [];
-  // ① 文字上方那条（顶栏之下 → 文字之上）。烟花本来就该在天上，给 2 倍权重。
-  if (y0 - topLimit > 30) zones.push({ x0: W * 0.06, y0: topLimit, x1: W * 0.94, y1: y0, w: 2 });
-  // ② 文字下方那条（文字之下 → 输入框之上）
-  if (botLimit - y1 > 30) zones.push({ x0: W * 0.06, y0: y1, x1: W * 0.94, y1: botLimit, w: 1 });
-  // ③ 文字左右两侧（只有宽屏才留得出空档；手机端诗句几乎满宽，自动跳过）
+  const zs = [];
   if (r) {
-    if (r.x - pad - W * 0.05 > 90) zones.push({ x0: W * 0.05, y0: topLimit, x1: r.x - pad, y1: H * 0.62, w: 1.4 });
-    if (W * 0.95 - (r.x + r.w + pad) > 90) zones.push({ x0: r.x + r.w + pad, y0: topLimit, x1: W * 0.95, y1: H * 0.62, w: 1.4 });
+    const upHi = r.y - cl;                       // 文字上方：花心不得低于此
+    if (upHi - top > 8) zs.push({ x0: W * .06, y0: top, x1: W * .94, y1: upHi, w: 2 });
+    const dnLo = r.y + r.h + cl;                 // 文字下方：花心不得高于此
+    if (bot - dnLo > 8) zs.push({ x0: W * .06, y0: dnLo, x1: W * .94, y1: bot, w: 1 });
+    // 左右两侧：只有宽屏才留得出空档，手机端诗句几乎满宽会自动跳过
+    if (r.x - cl - W * .05 > 60) zs.push({ x0: W * .05, y0: top, x1: r.x - cl, y1: Math.min(H - 14, H * .62), w: 1.4 });
+    if (W * .95 - (r.x + r.w + cl) > 60) zs.push({ x0: r.x + r.w + cl, y0: top, x1: W * .95, y1: Math.min(H - 14, H * .62), w: 1.4 });
+  } else {
+    zs.push({ x0: W * .06, y0: top, x1: W * .94, y1: Math.min(H - 14, H * .58), w: 1 });
   }
-  if (!zones.length) zones.push({ x0: W * 0.06, y0: topLimit, x1: W * 0.94, y1: botLimit, w: 1 });
-  // 按「面积 × 权重」随机挑一条空档，避免每发都挤在同一处
+  return zs.filter(z => z.x1 - z.x0 > 20 && z.y1 - z.y0 > 6);
+}
+// 返回 [x, y, 实际可用的花朵半径] —— 空档不够时花朵自动收小，绝不把花心丢到文字上。
+function pickBurstSpot(rad) {
+  let useR = rad, zs = burstZones(useR);
+  if (!zs.length) { useR = rad * 0.6; zs = burstZones(useR); }
+  if (!zs.length) { useR = rad * 0.42; zs = burstZones(useR); }
+  if (!zs.length) {
+    // 极端窄屏：退到「文字正下方」一条，花朵收到很小（宁可小，也不能压字）
+    const r = poemSafeRect;
+    const y = r ? Math.min(H - 12, r.y + r.h + 10) : H * 0.5;
+    return [clamp(rand(W * .1, W * .9), 12, W - 12), clamp(y, 10, H - 10), rad * 0.42];
+  }
+  // 按「面积 × 权重」随机挑一条空档（上方那条权重 2 —— 烟花本来就该在天上）
   let total = 0;
-  for (const z of zones) total += (z.x1 - z.x0) * (z.y1 - z.y0) * z.w;
-  let k = Math.random() * total, z = zones[zones.length - 1];
-  for (const q of zones) { k -= (q.x1 - q.x0) * (q.y1 - q.y0) * q.w; if (k <= 0) { z = q; break; } }
-  return [clamp(rand(z.x0, z.x1), 12, W - 12), clamp(rand(z.y0, z.y1), 10, H - 10)];
+  for (const z of zs) total += (z.x1 - z.x0) * (z.y1 - z.y0) * z.w;
+  let k = Math.random() * total, z = zs[zs.length - 1];
+  for (const q of zs) { k -= (q.x1 - q.x0) * (q.y1 - q.y0) * q.w; if (k <= 0) { z = q; break; } }
+  return [clamp(rand(z.x0, z.x1), 12, W - 12), clamp(rand(z.y0, z.y1), 10, H - 10), useR];
+}
+/* 自动烟花统一入口：选点 → 自检 → 记录落点 → 打上去（immediate=true 则立刻炸，不走上升弹）。 */
+function spawnAutoBurst(want, immediate) {
+  const sp = pickBurstSpot(want);
+  const r = poemSafeRect;
+  // 自检：自动烟花的**花心**绝不该落在中央文字上（验收脚本断言 fwBadSpot 为 0）
+  if (r && sp[0] > r.x && sp[0] < r.x + r.w && sp[1] > r.y && sp[1] < r.y + r.h) fwBadSpot++;
+  fwSpots.push([Math.round(sp[0]), Math.round(sp[1])]);
+  if (fwSpots.length > 60) fwSpots.shift();
+  const size = sp[2] / Math.min(W, H);
+  if (immediate) burstFirework(sp[0], sp[1], { size });
+  else launchShell(sp[0], sp[1], { size });
+  return sp;
 }
 /* 有面板/弹层打开时，烟花不该画在它们上面（#fw 的 z-index 高于 sheet / 抽屉 / 保存预览）。 */
 let _panelEls = null;
@@ -2855,20 +3022,19 @@ function drawCelebrationLayer(dt) {
   // 庆祝窗口内：随机位置、随机色相持续放烟花（绝对时间判断，降频也不会漏拍）
   const nowS = performance.now() / 1000;
   if (!blocked && nowS < celebrationUntil && nowS >= nextFwAt) {
-    nextFwAt = nowS + rand(0.26, 0.5);
-    const sp = pickBurstSpot();
-    const r = poemSafeRect;
-    // 自检计数：自动烟花绝不该落在中央文字上（验收脚本断言它为 0）
-    if (r && sp[0] > r.x && sp[0] < r.x + r.w && sp[1] > r.y && sp[1] < r.y + r.h) fwBadSpot++;
-    fwSpots.push([Math.round(sp[0]), Math.round(sp[1])]);
-    if (fwSpots.length > 60) fwSpots.shift();
-    burstFirework(sp[0], sp[1], { n: 46, power: 1.05 });
+    // 真实烟花汇演是「一发一发打上天」的：多数单发，偶尔来个两三发齐射
+    const volley = Math.random() < 0.3 ? 2 + ((Math.random() * 2) | 0) : 1;
+    nextFwAt = nowS + rand(0.45, 0.9);
+    for (let i = 0; i < volley; i++) {
+      // 空档不够时 pickBurstSpot 会把花朵自动收小，绝不把花心丢到文字上
+      spawnAutoBurst(Math.min(W, H) * rand(0.22, 0.30));
+    }
   }
   // 粒子照常推进寿命，只是面板打开期间不画 —— 否则关掉面板会看到一堆「冻住」的烟花突然动起来
   updateFireworks(dt);
   updatePoemDust(dt);
   if (blocked) return false;
-  const has = fireworks.length || fwCores.length || poemDust.length;
+  const has = fireworks.length || fwCores.length || fwSmoke.length || fwShells.length || poemDust.length;
   if (has) { drawFireworks(); drawPoemDust(); }
   return has;
 }
@@ -3560,7 +3726,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   // 诗句若正停在屏幕中央，一并收起并恢复星空全速绘制
   dismissPoem(false);
   // 烟花与星尘也一并清空，别留在清空后的星空里
-  fireworks = []; fwCores = []; poemDust = []; poemDustAcc = 0;
+  fireworks = []; fwCores = []; fwShells = []; fwSmoke = []; poemDust = []; poemDustAcc = 0;
   wishKeep = [];
   try { localStorage.removeItem(LS_WISH); } catch (e) {}
   renderWishes();
@@ -3581,7 +3747,8 @@ window.addEventListener('pointerdown', (e) => {
   const now = performance.now();
   if (now - lastTapFw < 130) return;      // 限流：连点也不至于糊成一片
   lastTapFw = now;
-  burstFirework(e.clientX, e.clientY, { n: 34, power: 0.85 });
+  // 点屏幕是即时反馈：直接在指尖炸开（不走上升弹，否则会有半秒的「没反应」）
+  burstFirework(e.clientX, e.clientY, { size: rand(0.24, 0.30) });
 }, { passive: true });
 
 /* ============================================================
