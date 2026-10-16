@@ -2992,7 +2992,21 @@ function pickBurstSpot(rad) {
   for (const z of zs) total += (z.x1 - z.x0) * (z.y1 - z.y0) * z.w;
   let k = Math.random() * total, z = zs[zs.length - 1];
   for (const q of zs) { k -= (q.x1 - q.x0) * (q.y1 - q.y0) * q.w; if (k <= 0) { z = q; break; } }
-  return [clamp(rand(z.x0, z.x1), 12, W - 12), clamp(rand(z.y0, z.y1), 10, H - 10), useR];
+  // ⚠️ 带内多采样，优先挑「离已有落点远」的位置。
+  // 只按面积随机的话，齐射那几发常常落在同一小片区域，几朵花叠在一起白芯会过曝成一大团 —— 那是「糊」不是「绚烂」。
+  let bx = 0, by = 0, best = -1;
+  for (let s = 0; s < 12; s++) {
+    const px = clamp(rand(z.x0, z.x1), 12, W - 12);
+    const py = clamp(rand(z.y0, z.y1), 10, H - 10);
+    let md = 1e9;
+    for (let i = fwSpots.length - 1, n = 0; i >= 0 && n < 8; i--, n++) {
+      const dd = Math.hypot(px - fwSpots[i][0], py - fwSpots[i][1]);
+      if (dd < md) md = dd;
+    }
+    if (md > best) { best = md; bx = px; by = py; }
+    if (md > useR * 2.4) break;
+  }
+  return [bx, by, useR];
 }
 /* 自动烟花统一入口：选点 → 自检 → 记录落点 → 打上去（immediate=true 则立刻炸，不走上升弹）。 */
 function spawnAutoBurst(want, immediate) {
