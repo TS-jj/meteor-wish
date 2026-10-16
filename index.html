@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="app-build" content="20261016-rayfire2">
+<meta name="app-build" content="20261016-rayfire3">
 <link rel="icon" href="data:,">
 <title>流星雨许愿</title>
 <style>
@@ -335,7 +335,9 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   min-height:2.2em;margin:10px 0 12px;
   font-size:30px;font-weight:800;letter-spacing:var(--ls);
   color:#fff3c8;--ink:#fff3c8;
-  text-shadow:0 0 22px rgba(255,228,154,.72),0 0 52px rgba(255,194,100,.28),0 2px 10px rgba(0,0,0,.84);
+  /* ⚠️ 半径同样别加大。这一层其实会被子元素 .pc 自己的 text-shadow 覆盖，
+     只在逐字动画起步前短暂生效 —— 留个克制的小光晕就够。 */
+  text-shadow:0 0 14px rgba(255,228,154,.6),0 0 30px rgba(255,194,100,.24),0 2px 8px rgba(0,0,0,.84);
 }
 .poem .pl.key::before,.poem .pl.key::after{
   content:'';position:absolute;left:50%;transform:translateX(-50%);
@@ -354,23 +356,38 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   display:inline-block;
   opacity:0;transform:translateY(18px) scale(.56);
   color:var(--ink,#fff);
+  /* ⚠️⚠️ 这行 text-shadow 是整页最贵的东西，别随手把半径加大。
+     整段祝福有 **41 个 .pc**，每个都带 text-shadow，而模糊的开销按半径²增长：
+     原来第二层写 48px，单个字的阴影层展开面积约 (字宽+4×48)×(字高+4×48) ≈ 22 万 CSS px
+     = 44 万设备像素（dsf 3），41 个字就是 **1800 万**，比 #sky/#fx/#fw 三层画布总和还多一倍。
+     CDP Tracing 实测（6× 降频）：把阴影全抹掉，诗句期间光栅 435ms/2s → 120ms/2s，3.6×。
+     现在固定成「9px 白光 + 18px 冷光 + 2px 落影」，发光感还在，成本约为原来的 1/8。
+     ⚠️ 下面 @keyframes pcShine 的 100% 必须和这一行**完全一致** —— 动画 fill:both 的终态
+        就是这一帧，两边不一致的话收尾会「跳」一下。 */
+  text-shadow:0 0 9px rgba(214,232,255,.62),0 0 18px rgba(150,196,255,.3),0 2px 7px rgba(0,0,0,.82);
   transition:opacity .72s var(--e-out),transform .96s cubic-bezier(.18,1.55,.28,1);
   transition-delay:var(--td,0s);
 }
 /* ⚠️ keyframes 里只碰 color / text-shadow，绝不碰 opacity / transform ——
-   否则会和上面那条 transition 抢同一属性，逐字动画会抖。 */
+   否则会和上面那条 transition 抢同一属性，逐字动画会抖。
+   半径同样是「够亮就行」：0% 的 7px、38% 的 11px 只作用于当下正在点亮的少数几个字，
+   真正要防的是终态那 41 个字一起背着的常驻阴影（见上面 .pc 的注释）。 */
 @keyframes pcShine{
-  0%{color:#79b4ff;text-shadow:0 0 26px rgba(110,180,255,.95),0 0 62px rgba(88,148,255,.52),0 2px 9px rgba(0,0,0,.86)}
-  38%{color:#ffe6a0;text-shadow:0 0 32px rgba(255,228,152,.98),0 0 74px rgba(255,190,90,.56),0 2px 9px rgba(0,0,0,.86)}
-  100%{color:var(--ink,#fff);text-shadow:0 0 22px rgba(218,235,255,.78),0 0 48px rgba(149,195,255,.34),0 2px 9px rgba(0,0,0,.86)}
+  0%{color:#79b4ff;text-shadow:0 0 7px rgba(126,188,255,.9),0 0 15px rgba(88,148,255,.45),0 2px 7px rgba(0,0,0,.82)}
+  38%{color:#ffe6a0;text-shadow:0 0 11px rgba(255,230,158,.95),0 0 22px rgba(255,190,90,.5),0 2px 7px rgba(0,0,0,.82)}
+  100%{color:var(--ink,#fff);text-shadow:0 0 9px rgba(214,232,255,.62),0 0 18px rgba(150,196,255,.3),0 2px 7px rgba(0,0,0,.82)}
 }
 .poem.show{opacity:1;will-change:opacity}
 .poem.show::before{opacity:1;transform:scale(1)}
 .poem.show::after{opacity:1;transform:scale(1) rotate(0);animation:ringPulse 3.4s ease-in-out 1.6s infinite}
-/* 星轨环展开后持续「呼吸」：光晕一圈圈涨落，画面不会在展开完就死住。 */
+/* 星轨环展开后持续「呼吸」：光晕一圈圈涨落，画面不会在展开完就死住。
+   ⚠️ box-shadow 的模糊半径同样按²计费，而且是**无限动画** —— 每一帧都要重画这一层。
+      原来写到 96px + inset 66px（单帧展开面积约 4.2M 设备像素），
+      实测确实是「文字出现时卡」的次要来源（关掉后诗句期间光栅 470ms/2s → 329ms/2s）。
+      收到 66px + inset 46px：呼吸的幅度肉眼几乎无差，展开面积少三分之一。 */
 @keyframes ringPulse{
-  0%,100%{box-shadow:0 0 54px 12px rgba(140,188,255,.13),inset 0 0 42px rgba(185,218,255,.09)}
-  50%{box-shadow:0 0 96px 28px rgba(152,198,255,.27),inset 0 0 66px rgba(204,230,255,.18)}
+  0%,100%{box-shadow:0 0 46px 9px rgba(140,188,255,.13),inset 0 0 34px rgba(185,218,255,.09)}
+  50%{box-shadow:0 0 66px 17px rgba(152,198,255,.25),inset 0 0 46px rgba(204,230,255,.16)}
 }
 .poem.show .poem-shell{opacity:1;transform:none}
 .poem.show .poem-kicker{opacity:1;transform:none}
@@ -2259,6 +2276,7 @@ function showPoem(text) {
   const nowS0 = performance.now() / 1000;
   celebrationUntil = nowS0 + 13.2;
   nextFwAt = nowS0 + 0.35;
+  fwCalm = false;                            // 正片一律全密度，余韵模式只在回显之后开启
   fwBadSpot = 0;                             // 本轮演出的自检计数清零
   fwSpots = [];
 
@@ -2349,7 +2367,7 @@ function dismissPoem(keepCelebrate) {
   fxc.classList.remove('web-dim');
   poemActive = false;                        // 星空恢复全速
   poemSafeRect = null;                       // 文字已撤，烟花不必再绕
-  if (!keepCelebrate) { celebrationUntil = 0; nextFwAt = 0; }
+  if (!keepCelebrate) { celebrationUntil = 0; nextFwAt = 0; fwCalm = false; }
 }
 
 /* 记录「正在中央的文字」所占矩形，供 pickBurstSpot() 避让。
@@ -2412,8 +2430,14 @@ function showRecall() {
     if (run !== poemRun) return;
     recallEl.classList.remove('show');
     poemSafeRect = null;
-    // 演出结束：烟花与星尘不再补充，已在空中的自然飘完消散
-    celebrationUntil = 0; nextFwAt = 0;
+    // 演出正片到此结束。但**别让天上立刻空掉** —— 星图正在淡回来，
+    // 此刻「啪」一下停掉烟花，观感就是「后面怎么没有烟花了」（用户原话）。
+    // 改成切进余韵：再零星放约 14 秒，间隔 1.7~3.0s、只打单发，
+    // 让「还在庆祝」的余温陪着星图亮回来，然后自然收尾。
+    const nEnd = performance.now() / 1000;
+    fwCalm = true;
+    celebrationUntil = nEnd + 14;
+    nextFwAt = nEnd + 1.2;
     // 等回显自己淡出（.8s）再让星图亮回来，避免两套文字在过渡途中短暂重叠
     setTimeout(() => {
       if (run !== poemRun) return;
@@ -2697,6 +2721,10 @@ let poemDust = [];         // 仪式期间从屏幕下沿升起的星尘
 let poemDustAcc = 0;       // 星尘生成节拍器
 let celebrationUntil = 0;  // 持续放烟花的截止时刻（秒，绝对时间）
 let nextFwAt = 0;          // 下一发烟花的时刻
+// 余韵模式：正片（诗句 + 回显）结束后，天上**再零星放一会儿**，而不是「啪」一下全停。
+// 用户反馈过「后面怎么没有烟花了」—— 星图亮回来时天上空空的，落差太大。
+// 余韵里只打单发、间隔 1.7~3.0s，既有"还在庆祝"的余温，又不会一直烧电。
+let fwCalm = false;
 let fwBadSpot = 0;         // 自检：自动烟花误落在中央文字上的次数（应为 0）
 let fwSpots = [];          // 自检：最近 60 个自动烟花的落点（验收脚本用来核对空档区）
 // 同屏花朵数上限（含在飞的上升弹）。每朵 = 一次 512² 缩放合成，手机上很贵；
@@ -2936,7 +2964,11 @@ window.__fwDebug = function () {
     blooms: fireworks.length,     // 同屏花朵数
     shells: fwShells.length,      // 在飞的上升弹
     smoke: fwSmoke.length,
+    dust: poemDust.length,        // 仪式星尘
     maxBlooms: FW_MAX_BLOOMS,
+    calm: fwCalm,                 // 是否处于「余韵」模式（回显之后的稀疏烟花）
+    // 距庆祝窗口结束还有多少秒（<=0 表示已经停了）。验收脚本靠它判断余韵有没有生效。
+    untilIn: +(celebrationUntil - performance.now() / 1000).toFixed(1),
   };
 };
 // 小光点精灵（星尘 / 烟云 / 上升弹头共用）
@@ -3125,8 +3157,10 @@ function updatePoemDust(dt) {
   // 只在庆祝窗口内持续补充；窗口结束后已有的自然飘完消散
   if (performance.now() / 1000 < celebrationUntil) {
     poemDustAcc += dt;
-    // 每 55ms 一颗 → 同时约 70 颗，密度刚好不糊
-    while (poemDustAcc >= 0.055) { poemDustAcc -= 0.055; spawnPoemDust(); }
+    // 正片每 55ms 一颗 → 同时约 70 颗，密度刚好不糊；
+    // 余韵阶段放稀到 140ms（约 28 颗）—— 星图已经亮回来了，不需要满屏星尘。
+    const gap = fwCalm ? 0.14 : 0.055;
+    while (poemDustAcc >= gap) { poemDustAcc -= gap; spawnPoemDust(); }
   } else {
     poemDustAcc = 0;
   }
@@ -3295,9 +3329,10 @@ function drawCelebrationLayer(dt) {
   // 庆祝窗口内：随机位置、随机色相持续放烟花（绝对时间判断，降频也不会漏拍）
   const nowS = performance.now() / 1000;
   if (!blocked && nowS < celebrationUntil && nowS >= nextFwAt) {
-    // 真实烟花汇演是「一发一发打上天」的：多数单发，偶尔来个两三发齐射
-    const volley = Math.random() < 0.3 ? 2 + ((Math.random() * 2) | 0) : 1;
-    nextFwAt = nowS + rand(0.55, 1.05);
+    // 真实烟花汇演是「一发一发打上天」的：多数单发，偶尔来个两三发齐射。
+    // 余韵模式（回显之后）改成更慢、更稀的单发 —— 天上还有零星的花，但画面已经安静下来。
+    const volley = fwCalm ? 1 : (Math.random() < 0.3 ? 2 + ((Math.random() * 2) | 0) : 1);
+    nextFwAt = nowS + (fwCalm ? rand(1.7, 3.0) : rand(0.55, 1.05));
     // ⚠️ 同屏花朵数必须封顶。齐射叠上花中花，实测冲到过 25 朵 ——
     //    每朵都是一次 512² 缩放合成，手机上光这一项就约 6M 设备像素/帧，必掉帧。
     //    到顶就跳过这一轮（已有的照常演完），密度回落自动恢复。
