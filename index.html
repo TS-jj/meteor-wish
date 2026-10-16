@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="app-build" content="20261016-bgm2">
+<meta name="app-build" content="20261016-rayfire2">
 <link rel="icon" href="data:,">
 <title>流星雨许愿</title>
 <style>
@@ -2692,12 +2692,16 @@ let fireworks = [];        // 空中的花朵（每项 = 一整朵，不是一�
 let fwCores = [];          // 爆发瞬间的白热核（很短命，负责「炸开」那一下）
 let fwShells = [];         // 上升弹：从屏幕下沿升到爆点再炸开（真实烟花都有这一段）
 let fwSmoke = [];          // 被烟花照亮的余晖薄雾（长命，缓慢扩散）
+let fwShocks = [];         // 炸开瞬间的冲击波细环：比白热核更「物理」的那一下
 let poemDust = [];         // 仪式期间从屏幕下沿升起的星尘
 let poemDustAcc = 0;       // 星尘生成节拍器
 let celebrationUntil = 0;  // 持续放烟花的截止时刻（秒，绝对时间）
 let nextFwAt = 0;          // 下一发烟花的时刻
 let fwBadSpot = 0;         // 自检：自动烟花误落在中央文字上的次数（应为 0）
 let fwSpots = [];          // 自检：最近 60 个自动烟花的落点（验收脚本用来核对空档区）
+// 同屏花朵数上限（含在飞的上升弹）。每朵 = 一次 512² 缩放合成，手机上很贵；
+// 实测不封顶会冲到 25 朵，是「烟花一出现就卡」的主要填充来源。
+const FW_MAX_BLOOMS = 14;
 
 // 一朵花一个主色系（真实烟花极少在一朵里混多种颜色），中心一律白热。
 // core = 近白的核心与射线内段，mid = 射线中段，tip = 射线末端与尾色。
@@ -2708,6 +2712,8 @@ const FW_TINTS = [
   { core: '250,253,255', mid: '190,220,255', tip: '116,166,255' },  // 冰蓝
   { core: '250,255,255', mid: '174,244,255', tip: '92,220,255' },   // 电光青
   { core: '253,250,255', mid: '214,186,255', tip: '164,122,255' },  // 紫罗兰
+  { core: '250,255,250', mid: '186,255,206', tip: '86,232,140' },   // 翠绿（铜盐焰色，真实烟花里很常见）
+  { core: '255,250,248', mid: '255,150,140', tip: '255,58,58' },    // 正红（比玫红更暖更纯）
 ];
 // 可复现的伪随机：同一 seed 每次生成同一朵花（不要用 Math.random 生成模板，
 // 否则每张都长一样或每次刷新都变，验收时也没法对照）。
@@ -2724,7 +2730,7 @@ const FW_R = FW_SZ / 2 * 0.95;            // 射线最大半径（模板像素�
 //   ① 段的位置分布必须用 pow(1.5)（**指数 > 1**）：第 0 段只覆盖半径的 4%，白热才不会糊一大团；
 //      写成 pow(0.72) 会让第 0 段占掉 27% 半径 —— 整朵花看着就是一团白光。
 //   ② 颜色/线宽/亮度一律按**该段的实际半径比例**分配，不要按段索引 —— 否则白热区宽度跟着段数漂。
-function fwDrawRay(g, cx, cy, r, tint) {
+function fwDrawRay(g, cx, cy, r, tint, rnd) {
   const SEG = 8;
   const dx = Math.cos(r.a), dy = Math.sin(r.a);
   const bx = -dy * r.bend, by = dx * r.bend;      // 极轻微弯曲：射线不是绝对直线
@@ -2733,8 +2739,8 @@ function fwDrawRay(g, cx, cy, r, tint) {
   for (let i = 0; i < SEG; i++) {
     const p0 = Math.pow(i / SEG, 1.5), p1 = Math.pow((i + 1) / SEG, 1.5);
     const pr = (p0 + p1) / 2;                     // 该段的半径比例（0 = 核心，1 = 末端）
-    const col = pr < 0.13 ? tint.core : (pr < 0.46 ? tint.mid : tint.tip);
-    const al = 0.98 - 0.22 * pr;                  // 整条射线都在燃烧，末端只略暗
+    const col = pr < 0.10 ? tint.core : (pr < 0.46 ? tint.mid : tint.tip);
+    const al = 1.0 - 0.20 * pr;                   // 整条射线都在燃烧，末端只略暗
     g.strokeStyle = 'rgba(' + col + ',' + al.toFixed(3) + ')';
     g.lineWidth = Math.max(0.5, r.w * (1.35 - 0.95 * pr));
     const a = at(p0), b = at(p1);
@@ -2743,23 +2749,39 @@ function fwDrawRay(g, cx, cy, r, tint) {
     g.lineTo(b[0], b[1]);
     g.stroke();
   }
+  // 火星颗粒：真实烟花的射线是一根「烧着的药柱」，不是一条干净的线 ——
+  // 沿线撒上大小、亮度都不等的火星，整朵花立刻有了燃烧的颗粒感。
+  // 在模板生成时一次性画好，运行时零成本。
+  const gn = 7 + ((rnd() * 7) | 0);
+  for (let i = 0; i < gn; i++) {
+    const gp = 0.08 + rnd() * 0.92;
+    const gx = cx + dx * L * gp + bx * L * gp * gp + (rnd() - .5) * 3.4;
+    const gy = cy + dy * L * gp + by * L * gp * gp + (rnd() - .5) * 3.4;
+    const ga = (0.26 + rnd() * 0.46) * (1 - 0.42 * gp);
+    g.fillStyle = 'rgba(' + (gp < 0.5 ? tint.mid : tint.tip) + ',' + ga.toFixed(3) + ')';
+    g.beginPath();
+    g.arc(gx, gy, 0.5 + rnd() * 1.35, 0, TAU);
+    g.fill();
+  }
   // 末端亮点 + 小光晕：真实烟花每条射线的头部都在燃烧，这一点是「像不像」的关键
   const ex = cx + dx * L + bx * L * L, ey = cy + dy * L + by * L * L;
-  const eg = g.createRadialGradient(ex, ey, 0, ex, ey, 13);
+  const eg = g.createRadialGradient(ex, ey, 0, ex, ey, 11);
   eg.addColorStop(0, 'rgba(' + tint.core + ',.95)');
   eg.addColorStop(.32, 'rgba(' + tint.mid + ',.42)');
   eg.addColorStop(1, 'rgba(' + tint.tip + ',0)');
   g.fillStyle = eg;
-  g.fillRect(ex - 13, ey - 13, 26, 26);
+  g.fillRect(ex - 11, ey - 11, 22, 22);
   g.fillStyle = 'rgba(' + tint.core + ',.98)';
   g.beginPath();
-  g.arc(ex, ey, 2.6, 0, TAU);
+  g.arc(ex, ey, 2.2, 0, TAU);
   g.fill();
 }
-// 生成一张「菊花型」烟花贴图：12 瓣 × 5 条 = 60 条射线，瓣间长度交错 → 天然的内外两层。
-function fwMakeShell(tint, seed) {
+// 生成一张「菊花型」烟花贴图。
+// ⚠️ `mkCanvas` 是为了能在 Worker 里复用同一段代码（那边只有 OffscreenCanvas，没有 document）。
+//    不传就走主线程的普通 canvas。
+function fwMakeShell(tint, seed, mkCanvas) {
   const S = FW_SZ, C = S / 2;
-  const cv = document.createElement('canvas');
+  const cv = mkCanvas ? mkCanvas() : document.createElement('canvas');
   cv.width = cv.height = S;
   const g = cv.getContext('2d');
   g.globalCompositeOperation = 'lighter';
@@ -2772,25 +2794,27 @@ function fwMakeShell(tint, seed) {
   haze.addColorStop(1, 'rgba(' + tint.tip + ',0)');
   g.fillStyle = haze;
   g.fillRect(0, 0, S, S);
-  // ② 射线：16 瓣 × 7 条 = 112 条。参考图里一朵花的射线密到「几乎填满圆面」，
+  // ② 射线：约 17 瓣 × 7 条 = 120 条。参考图里一朵花的射线密到「几乎填满圆面」，
   //    条数少一半就会看出明显的空隙，像「刺球」而不像烟花。
-  //    瓣长随机区间拉大 → 外缘不规则，不是规规矩矩的圆。
-  const PETALS = 16, PER = 7;
+  //    瓣数/条数本身也带随机 → 变体之间连骨架都不同，不是同一朵换个角度。
+  const PETALS = 18 + ((rnd() * 5) | 0);
+  const PER = 7 + ((rnd() * 3) | 0);
   for (let p = 0; p < PETALS; p++) {
-    const base = p / PETALS * TAU + (rnd() - .5) * 0.05;
-    const plen = FW_R * (0.72 + rnd() * 0.28);
+    const base = p / PETALS * TAU + (rnd() - .5) * 0.06;
+    const plen = FW_R * (0.70 + rnd() * 0.30);
     for (let k = 0; k < PER; k++) {
       fwDrawRay(g, C, C, {
-        a: base + (k / (PER - 1) - 0.5) * (TAU / PETALS) * 0.9,
-        // 长短差拉大：参考图里同一朵花里射线的长度层次很明显，均匀长度看着像「刺球」
-        len: plen * (0.55 + rnd() * 0.45),
-        w: 0.72 + rnd() * 0.5,                       // 条数多了就相应调细，整体亮度持平
+        a: base + (k / (PER - 1) - 0.5) * (TAU / PETALS) * 0.92,
+        // 长短留一点层次，但不能太夸张 —— 差得太大整朵会散成「蒲公英」而不是菊花
+        len: plen * (0.62 + rnd() * 0.38),
+        // ⚠️ 线宽决定「像不像」：太细就成了刺球。条数多了要相应调细，但下限别低于 0.9
+        w: 0.95 + rnd() * 0.65,
         bend: (rnd() - .5) * 0.06,
-      }, tint);
+      }, tint, rnd);
     }
   }
-  // ③ 中心白热核：只占半径的 14%，再大就把射线吃掉了
-  const cr = FW_R * 0.14;
+  // ③ 中心白热核：只占半径的 11%，再大就把射线吃掉了（会和爆发时的 fwCores 叠成一团白）
+  const cr = FW_R * 0.11;
   const core = g.createRadialGradient(C, C, 0, C, C, cr);
   core.addColorStop(0, 'rgba(255,255,255,.94)');
   core.addColorStop(.22, 'rgba(' + tint.core + ',.52)');
@@ -2800,8 +2824,121 @@ function fwMakeShell(tint, seed) {
   g.fillRect(C - cr, C - cr, cr * 2, cr * 2);
   return cv;
 }
-// 6 张花朵模板（一色系一张）；每朵再随机旋转 + 不同缩放，观感就不会重复
-const FW_SHELLS = FW_TINTS.map((t, i) => fwMakeShell(t, 1013 + i * 7919));
+// 花朵模板：**每个色相 2 个形态变体**，运行时再随机镜像 / 旋转 / 非均匀缩放。
+// 只有一张模板时，同色相的花长得一模一样 —— 这是「一看就假」的最大来源。
+//
+// ⚠️⚠️ **模板生成必须放在 Web Worker 里**。这是手机端「烟花一出现就卡」的真凶：
+//    加了火星颗粒 + 闪烁星之后单张要 ~9ms（手机 CPU 上 ~25ms），16 张连做就是 400ms 量级；
+//    而它恰好集中在「第 8 个愿望触发庆祝」那几秒 —— 真机实测有 16 次同步生成、
+//    累计阻塞主线程 1.24s（`verify-jank.js` 降频 6× 实测）。
+//    现在用 Worker + OffscreenCanvas 生成 → `transferToImageBitmap()` → 主线程只收位图，
+//    生成成本彻底离开主线程；主线程只剩「兜底」这一条路（老浏览器 / file:// 下 Blob worker 被拦）。
+//
+// ⚠️ Worker 源码不是手抄一份，而是把下面这几个**同一个函数对象** toString 拼出来 ——
+//    这样永远不会出现「worker 里那份忘了同步改」的漂移。改 fwMakeShell / fwDrawRay 只需改一处。
+const FW_VARS = 2;
+const FW_SEED = (ti, vi) => 1013 + ti * 7919 + vi * 104729;   // 两个变体的 seed 间隔取大且互质
+let FW_SHELLS = null;       // [色相][变体] → canvas / ImageBitmap，未生成的位置是 undefined
+let FW_GEN_MS = 0;          // 单张生成耗时（验收钩子，只反映主线程兜底那次）
+let FW_TILES = 0;           // 已就绪张数（验收钩子）
+let FW_WORKER = null;       // 模板生成 worker；为 null 表示走主线程兜底
+
+const FW_WORKER_SRC = [
+  'var FW_TINTS=' + JSON.stringify(FW_TINTS) + ';',
+  'var TAU=Math.PI*2;',
+  'var FW_SZ=' + FW_SZ + ',FW_R=' + FW_R + ';',
+  fwRnd.toString(),
+  fwDrawRay.toString(),
+  fwMakeShell.toString(),
+  // 复用同一块 OffscreenCanvas：transferToImageBitmap() 之后画布会被清空，可以直接接着用
+  'var _oc=null;',
+  'onmessage=function(e){var d=e.data;',
+  'if(!_oc)_oc=new OffscreenCanvas(FW_SZ,FW_SZ);',
+  'var cv=fwMakeShell(FW_TINTS[d.ti],d.seed,function(){return _oc;});',
+  'var bmp=cv.transferToImageBitmap();',
+  'postMessage({ti:d.ti,vi:d.vi,bmp:bmp},[bmp]);};',
+].join('\n');
+
+function fwPutTile(ti, vi, tile) {
+  if (!FW_SHELLS) FW_SHELLS = FW_TINTS.map(() => new Array(FW_VARS));
+  if (FW_SHELLS[ti][vi]) return;      // 已经有（主线程兜底先生成了）→ 丢掉 worker 这份
+  FW_SHELLS[ti][vi] = tile;
+  FW_TILES++;
+}
+/* 起 Worker 并把 16 张一次性排上队。返回是否成功（失败则调用方走主线程兜底）。 */
+function fwStartWorker() {
+  if (FW_WORKER) return true;
+  if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') return false;
+  if (location.protocol === 'file:') return false;   // file:// 是不透明源，Blob worker 会被拦
+  try {
+    const url = URL.createObjectURL(new Blob([FW_WORKER_SRC], { type: 'text/javascript' }));
+    const w = new Worker(url);
+    URL.revokeObjectURL(url);
+    w.onmessage = e => {
+      const d = e.data;
+      fwPutTile(d.ti, d.vi, d.bmp);
+    };
+    // worker 里出错（老浏览器不支持 OffscreenCanvas 等）→ 退回主线程，别让烟花空着不画
+    w.onerror = () => { FW_WORKER = null; fwWarmMain(); };
+    FW_WORKER = w;
+    for (let ti = 0; ti < FW_TINTS.length; ti++) {
+      for (let vi = 0; vi < FW_VARS; vi++) w.postMessage({ ti, vi, seed: FW_SEED(ti, vi) });
+    }
+    return true;
+  } catch (e) { FW_WORKER = null; return false; }
+}
+/* 取一张模板：worker 已送到就用位图，否则**主线程兜底现场生成**（宁可掉一帧也不能空着）。 */
+function fwShell(ti, vi) {
+  if (!FW_SHELLS) FW_SHELLS = FW_TINTS.map(() => new Array(FW_VARS));
+  let cv = FW_SHELLS[ti][vi];
+  if (!cv) {
+    const t0 = performance.now();
+    cv = fwMakeShell(FW_TINTS[ti], FW_SEED(ti, vi));
+    FW_GEN_MS = Math.max(FW_GEN_MS, +(performance.now() - t0).toFixed(1));
+    fwPutTile(ti, vi, cv);
+  }
+  return cv;
+}
+/* 主线程兜底预热（只在 Worker 不可用时走）：一张 ~9ms，扔进 idle 里逐张做。
+   ⚠️ 游标 fwWarmI 必须独立于 FW_TILES —— 运行时可能乱序建了某一张，
+      用「已建张数」当游标会卡在同一张上空转。 */
+let fwWarmI = 0;
+function fwWarmMain() {
+  const total = FW_TINTS.length * FW_VARS;
+  while (fwWarmI < total) {
+    const i = fwWarmI++;
+    const ti = (i / FW_VARS) | 0, vi = i % FW_VARS;
+    if (!FW_SHELLS || !FW_SHELLS[ti][vi]) { fwShell(ti, vi); break; }
+  }
+  if (fwWarmI >= total) return;
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(fwWarmMain, { timeout: 300 });
+  else setTimeout(fwWarmMain, 90);
+}
+function fwKickWarm() {
+  if (!fwStartWorker()) fwWarmMain();
+}
+// 一次性全建（同步、主线程）：只给外观特写脚本用（离线截图，不在乎耗时）。
+function fwEnsureShells() {
+  const t0 = performance.now();
+  for (let i = 0; i < FW_TINTS.length; i++) for (let v = 0; v < FW_VARS; v++) fwShell(i, v);
+  FW_GEN_MS = +(performance.now() - t0).toFixed(1);
+  return FW_SHELLS;
+}
+// 验收钩子：挂在 window 上而不是靠脚本去引用全局 `let` ——
+// 全局 `let` 绑定在 page.evaluate 里有时读不到（不是 on-global-object），会很坑。
+window.__fwDebug = function () {
+  const t0 = FW_SHELLS && FW_SHELLS[0] && FW_SHELLS[0][0];
+  return {
+    worker: !!FW_WORKER,          // 是否走 Worker 生成（false = 主线程兜底）
+    tiles: FW_TILES,              // 已就绪张数
+    genMs: FW_GEN_MS,             // 主线程兜底那次的最慢耗时
+    tile0: !t0 ? null : (typeof ImageBitmap !== 'undefined' && t0 instanceof ImageBitmap ? 'bitmap' : 'canvas'),
+    blooms: fireworks.length,     // 同屏花朵数
+    shells: fwShells.length,      // 在飞的上升弹
+    smoke: fwSmoke.length,
+    maxBlooms: FW_MAX_BLOOMS,
+  };
+};
 // 小光点精灵（星尘 / 烟云 / 上升弹头共用）
 const FW_DOTS = FW_TINTS.map(t => {
   const S = 64, cv = document.createElement('canvas');
@@ -2816,20 +2953,49 @@ const FW_DOTS = FW_TINTS.map(t => {
   g.fillRect(0, 0, S, S);
   return cv;
 });
-// 爆开一朵：只推入一个「花朵」对象，绘制时整张模板一次 drawImage。
+// 一朵花的公共字段：形态变体、镜像、纵向比例、以及几颗会闪的「星」。
+// 真实烟花每一朵都不一样，所以这些全部逐朵随机 —— 而不是同一张图转个角度。
+function fwMakeBloom(cx, cy, ti, base, dur, delay) {
+  const tw = [];
+  const tn = 4 + ((Math.random() * 3) | 0);              // 4~6 颗闪烁星
+  for (let i = 0; i < tn; i++) {
+    tw.push({
+      a: Math.random() * TAU,                            // 在花体上的方位
+      rr: 0.42 + Math.random() * 0.5,                    // 半径比例（贴在外圈附近）
+      ph: Math.random() * TAU,                           // 闪烁相位
+      w: 9 + Math.random() * 9,                          // 闪烁快慢
+      sz: 0.032 + Math.random() * 0.045,                  // 尺寸（相对模板边长）—— 太大就成了散落的珠子
+    });
+  }
+  const vi = (Math.random() * FW_VARS) | 0;              // 用哪个形态变体
+  return {
+    x: cx, oy: cy, t: 0, dur, delay: delay || 0, ti, tw,
+    vi, cv: fwShell(ti, vi),                             // 建的时候就保证贴图已就绪，画的时候不再有分支
+    rot: rand(0, TAU),
+    mirror: Math.random() < 0.5,                         // 镜像 → 同一变体也能长出两种样子
+    sq: 0.88 + Math.random() * 0.24,                     // 纵向比例微调 → 不是标准正圆
+    s: Math.min(1.25, base / FW_R),
+    fall: rand(22, 42),                                  // 整朵下坠加速度
+  };
+}
+// 爆开一朵：主花 +（有时）内芯花 + 白热核 + 冲击波 + 余晖
 function burstFirework(cx, cy, opt) {
   opt = opt || {};
   const ti = opt.tint == null ? (Math.random() * FW_TINTS.length) | 0 : opt.tint % FW_TINTS.length;
   const base = Math.min(W, H) * (opt.size || 0.30);      // 射线末端半径（屏幕 px）
   const dur = opt.dur || rand(2.1, 2.9);
-  fireworks.push({
-    x: cx, oy: cy, t: 0, dur, ti,
-    rot: rand(0, TAU),                                   // 每朵姿态不同，避免看着像复制粘贴
-    s: Math.min(1.25, base / FW_R),                      // 模板缩放（再大就明显发糊）
-    fall: rand(15, 28),                                  // 整朵下坠加速度
-  });
+  fireworks.push(fwMakeBloom(cx, cy, ti, base, dur, 0));
+  // 花中花：真实礼花弹最典型的结构是「外层主色 + 内芯对比色」，中心稍后再爆一颗小的。
+  // 这是「专业感」的主要来源，别省。
+  if (opt.noPistil !== true && base > Math.min(W, H) * 0.24 && Math.random() < 0.45) {
+    let pti = (ti + 3 + ((Math.random() * 4) | 0)) % FW_TINTS.length;   // 色相差开，否则同色叠着看不出来
+    if (pti === ti) pti = (ti + 1) % FW_TINTS.length;
+    fireworks.push(fwMakeBloom(cx, cy, pti, base * (0.34 + Math.random() * 0.14),
+      dur * 0.7, rand(0.26, 0.46)));
+  }
   flashes.push({ a: 0.06, t: 0, dur: 0.22 });
   fwCores.push({ x: cx, y: cy, t: 0, dur: 0.38, r: base * 0.9, ti });
+  fwShocks.push({ x: cx, y: cy, t: 0, dur: 0.46, r: base * 1.35, ti });
   fwSmoke.push({ x: cx, y: cy, t: 0, dur: dur + 1.0, r: base * 1.0, ti });
 }
 // 发射一颗上升弹：从屏幕下沿升到 (tx,ty) 再炸开 —— 真实烟花都有这一段，
@@ -2847,11 +3013,15 @@ function updateFireworks(dt) {
   for (let i = fwCores.length - 1; i >= 0; i--) {
     const c = fwCores[i]; c.t += dt; if (c.t >= c.dur) fwCores.splice(i, 1);
   }
+  for (let i = fwShocks.length - 1; i >= 0; i--) {
+    const s = fwShocks[i]; s.t += dt; if (s.t >= s.dur) fwShocks.splice(i, 1);
+  }
   for (let i = fwSmoke.length - 1; i >= 0; i--) {
     const m = fwSmoke[i]; m.t += dt; if (m.t >= m.dur) fwSmoke.splice(i, 1);
   }
   for (let i = fireworks.length - 1; i >= 0; i--) {
-    const f = fireworks[i]; f.t += dt; if (f.t >= f.dur) fireworks.splice(i, 1);
+    // 花中花带 delay：要等 delay + dur 都走完才退场，否则内芯还没露头就被删了
+    const f = fireworks[i]; f.t += dt; if (f.t >= f.dur + f.delay) fireworks.splice(i, 1);
   }
   for (let i = fwShells.length - 1; i >= 0; i--) {
     const s = fwShells[i]; s.t += dt;
@@ -2864,9 +3034,12 @@ function drawFireworks() {
   fwctx.save();
   fwctx.globalCompositeOperation = 'lighter';
   // ① 烟云（最底层、最长命）：被烟花照亮的一团余晖，缓慢扩散消散
+  //    ⚠️ 尺寸增长别写太猛：原先 `1.15 + k*1.7` 到末期直径是爆点的 2.85 倍，
+  //    那时 alpha 已经淡到几乎看不见，却仍是全屏级别的填充 —— 桌面实测它一个人
+  //    就吃掉 5M px/帧里的绝大部分。压到 0.95~1.7 倍，观感几乎无差，填充减六成。
   for (const m of fwSmoke) {
     const k = m.t / m.dur;
-    const sz = m.r * (1.15 + k * 1.7) * 2;
+    const sz = m.r * (0.95 + k * 0.75) * 2;
     fwctx.globalAlpha = Math.pow(1 - k, 1.6) * 0.30;
     fwctx.drawImage(FW_DOTS[m.ti], m.x - sz / 2, m.y - sz / 2, sz, sz);
   }
@@ -2886,25 +3059,54 @@ function drawFireworks() {
     fwctx.globalAlpha = 0.95;
     fwctx.drawImage(FW_DOTS[s.ti], x - 10, y - 10, 20, 20);
   }
-  // ③ 爆发白热核：很短，负责「炸开」那一下的刺眼感
+  // ③ 冲击波细环：比白热核更「物理」的那一下 —— 炸开瞬间一圈白光向外推开
+  for (const s of fwShocks) {
+    const k = s.t / s.dur;
+    const rr = s.r * (0.20 + 0.95 * (1 - Math.pow(1 - k, 2.6)));
+    fwctx.globalAlpha = Math.pow(1 - k, 2.0) * 0.40;
+    fwctx.strokeStyle = 'rgba(' + FW_TINTS[s.ti].core + ',.9)';
+    fwctx.lineWidth = Math.max(0.6, 3.6 * (1 - k));
+    fwctx.beginPath();
+    fwctx.arc(s.x, s.y, rr, 0, TAU);
+    fwctx.stroke();
+  }
+  // ④ 爆发白热核：很短，负责「炸开」那一下的刺眼感
   for (const c of fwCores) {
     const k = c.t / c.dur;
     const sz = c.r * (0.5 + k * 1.5) * 2;
     fwctx.globalAlpha = Math.pow(1 - k, 2.2) * 0.9;
     fwctx.drawImage(FW_DOTS[c.ti], c.x - sz / 2, c.y - sz / 2, sz, sz);
   }
-  // ④ 花朵本体：预渲染模板一次 drawImage —— 缩放 = 射线伸出，旋转 = 每朵姿态不同
+  // ⑤ 花朵本体：预渲染模板一次 drawImage。缩放 = 射线伸出；
+  //    旋转 / 镜像 / 纵向比例 = 每一朵都不一样，不是同一张图转个角度。
+  //    花中花（delay > 0）在 delay 之前不画。
   for (const f of fireworks) {
-    const k = f.t / f.dur;
-    const grow = 1 - Math.exp(-13 * f.t);                 // 约 0.22s 内几乎完全伸出
+    const tt = f.t - f.delay;
+    if (tt <= 0) continue;
+    const k = tt / f.dur;
+    const grow = 1 - Math.exp(-13 * tt);                  // 约 0.22s 内几乎完全伸出
     const sc = f.s * grow * (1 + 0.055 * k);
-    const a = Math.min(1, f.t / 0.05) * (k < 0.55 ? 1 : Math.pow(1 - (k - 0.55) / 0.45, 1.5));
-    fwctx.globalAlpha = a;
+    const a = Math.min(1, tt / 0.05) * (k < 0.55 ? 1 : Math.pow(1 - (k - 0.55) / 0.45, 1.5));
+    if (a <= 0.004) continue;
+    const bx = f.x, by = f.oy + 0.5 * f.fall * tt * tt;   // 整朵缓慢下坠
     fwctx.save();
-    fwctx.translate(f.x, f.oy + 0.5 * f.fall * f.t * f.t); // 整朵缓慢下坠
+    fwctx.translate(bx, by);
     fwctx.rotate(f.rot);
-    fwctx.scale(sc, sc);
-    fwctx.drawImage(FW_SHELLS[f.ti], -FW_SZ / 2, -FW_SZ / 2);
+    fwctx.globalAlpha = a;
+    fwctx.scale(f.mirror ? -sc : sc, sc * f.sq);
+    fwctx.drawImage(f.cv, -FW_SZ / 2, -FW_SZ / 2);
+    // 闪烁星：真实烟花末端的「星」会不规则明灭，这一层是让整朵花「活起来」的关键。
+    // 用同一套变换画，镜像 / 旋转 / 纵向比例自动跟随；末段花已经暗了就不画，省开销。
+    if (f.tw.length && k < 0.72) {
+      const ta = a * Math.min(1, k / 0.22) * 0.9;
+      for (const s of f.tw) {
+        const lit = 0.28 + 0.72 * Math.abs(Math.sin(tt * s.w + s.ph));
+        fwctx.globalAlpha = ta * lit;
+        const px = Math.cos(s.a) * s.rr * FW_R, py = Math.sin(s.a) * s.rr * FW_R;
+        const d = s.sz * FW_SZ;
+        fwctx.drawImage(FW_DOTS[f.ti], px - d / 2, py - d / 2, d, d);
+      }
+    }
     fwctx.restore();
   }
   fwctx.restore();
@@ -3095,17 +3297,24 @@ function drawCelebrationLayer(dt) {
   if (!blocked && nowS < celebrationUntil && nowS >= nextFwAt) {
     // 真实烟花汇演是「一发一发打上天」的：多数单发，偶尔来个两三发齐射
     const volley = Math.random() < 0.3 ? 2 + ((Math.random() * 2) | 0) : 1;
-    nextFwAt = nowS + rand(0.45, 0.9);
-    for (let i = 0; i < volley; i++) {
-      // 空档不够时 pickBurstSpot 会把花朵自动收小，绝不把花心丢到文字上
-      spawnAutoBurst(Math.min(W, H) * rand(0.22, 0.30));
+    nextFwAt = nowS + rand(0.55, 1.05);
+    // ⚠️ 同屏花朵数必须封顶。齐射叠上花中花，实测冲到过 25 朵 ——
+    //    每朵都是一次 512² 缩放合成，手机上光这一项就约 6M 设备像素/帧，必掉帧。
+    //    到顶就跳过这一轮（已有的照常演完），密度回落自动恢复。
+    //    「在飞的上升弹」也要算进来，否则几发齐射同时上天、落点一起炸，还是会堆。
+    if (fireworks.length + fwShells.length < FW_MAX_BLOOMS) {
+      for (let i = 0; i < volley; i++) {
+        if (fireworks.length + fwShells.length >= FW_MAX_BLOOMS) break;
+        // 空档不够时 pickBurstSpot 会把花朵自动收小，绝不把花心丢到文字上
+        spawnAutoBurst(Math.min(W, H) * rand(0.22, 0.30));
+      }
     }
   }
   // 粒子照常推进寿命，只是面板打开期间不画 —— 否则关掉面板会看到一堆「冻住」的烟花突然动起来
   updateFireworks(dt);
   updatePoemDust(dt);
   if (blocked) return false;
-  const has = fireworks.length || fwCores.length || fwSmoke.length || fwShells.length || poemDust.length;
+  const has = fireworks.length || fwCores.length || fwShocks.length || fwSmoke.length || fwShells.length || poemDust.length;
   if (has) { drawFireworks(); drawPoemDust(); }
   return has;
 }
@@ -3797,7 +4006,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   // 诗句若正停在屏幕中央，一并收起并恢复星空全速绘制
   dismissPoem(false);
   // 烟花与星尘也一并清空，别留在清空后的星空里
-  fireworks = []; fwCores = []; fwShells = []; fwSmoke = []; poemDust = []; poemDustAcc = 0;
+  fireworks = []; fwCores = []; fwShocks = []; fwShells = []; fwSmoke = []; poemDust = []; poemDustAcc = 0;
   wishKeep = [];
   try { localStorage.removeItem(LS_WISH); } catch (e) {}
   renderWishes();
@@ -3834,14 +4043,14 @@ let poemSkip = false;
 let fwDirty = false;
 function frame(now) {
   const t = now / 1000;
-  // 诗句出场与停留期间，星空每两帧才画一次（约 30fps）。此时星空已被压暗到 0.3、
-  // 观众的注意力在文字上，肉眼几乎看不出降频；而省下的主线程能让逐字点亮稳定跑满帧。
-  // ⚠️ 跳过时绝对不能更新 lastT，否则下一次真正绘制时 dt 会被算小 → 整场动画变慢。
-  // ⚠️ 用户主动拖动星空时全速绘制，否则会拖手。
-  if (poemActive && !dragging) {
-    poemSkip = !poemSkip;
-    if (poemSkip) { requestAnimationFrame(frame); return; }
-  }
+  // 诗句出场与停留期间，**星空**每两帧才画一次（约 30fps）—— 此时星空已被压暗到 0.3，
+  // 观众的注意力在文字上，肉眼几乎看不出降频。
+  // ⚠️⚠️ 但烟花（#fw）和光环/闪光（#fx）**必须全速**：它们才是这一幕的主角。
+  //    这里以前是「整个 frame 直接 return」，把烟花也一起砍成了 30fps ——
+  //    真机反馈「烟花出现的时候有点卡」，一半来自这个，另一半来自模板的同步生成。
+  // ⚠️ dt 仍然每帧照算：一旦有帧不更新 lastT，下一帧 dt 会被算大，整场动画节奏就乱了。
+  const skipSky = poemActive && !dragging && (poemSkip = !poemSkip);
+  if (!poemActive || dragging) poemSkip = false;
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
 
@@ -3865,16 +4074,20 @@ function frame(now) {
   updateMeteors(dt);
   updateNovas(dt);
 
-  sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  // 星空三件套（背景渐变 / 星云 / 流星）只画在 #sky 上 → 降频时整块跳过，
+  // 画布保留上一帧内容，视觉上等同于 30fps，却省下全屏渐变填充 + 上百颗星的绘制。
+  if (!skipSky) {
+    sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    sctx.clearRect(0, 0, W, H);
+    drawSky(t);
+    drawNovas();
+    drawMeteors();
+  }
   fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   fwctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  sctx.clearRect(0, 0, W, H);
   fctx.clearRect(0, 0, W, H);
   if (fwDirty) fwctx.clearRect(0, 0, W, H);
 
-  drawSky(t);
-  drawNovas();
-  drawMeteors();
   drawFxLayer(dt);
   fwDirty = drawCelebrationLayer(dt);   // 烟花 + 星尘：顶层画布，压在诗句柔光底之上
   updateWishLabels3d(t);
@@ -3909,6 +4122,9 @@ function initDaily() {
 }
 if (document.readyState === 'complete') initDaily();
 else window.addEventListener('load', initDaily);
+// 烟花模板预热：Worker 里生成，主线程零成本，所以只要避开首屏那几帧就够 —— 400ms 足够。
+// （Worker 不可用时 fwKickWarm 内部会退回主线程 idle 预热，那时才需要让得更久。）
+setTimeout(fwKickWarm, 400);
 requestAnimationFrame(frame);
 </script>
 </body>
